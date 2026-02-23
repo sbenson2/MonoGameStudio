@@ -1,0 +1,23 @@
+# Build outputs
+bin/
+obj/
+
+# IDE
+.vs/
+.vscode/
+*.user
+*.suo
+*.userprefs
+
+# MonoGame content build
+*.xnb
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Rider
+.idea/
+
+# ImGui layout persistence
+imgui.ini

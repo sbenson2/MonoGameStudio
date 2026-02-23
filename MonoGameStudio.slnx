@@ -1,0 +1,7 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/MonoGameStudio.Core/MonoGameStudio.Core.csproj" />
+    <Project Path="src/MonoGameStudio.Editor/MonoGameStudio.Editor.csproj" />
+    <Project Path="src/MonoGameStudio.Desktop/MonoGameStudio.Desktop.csproj" />
+  </Folder>
+</Solution>
