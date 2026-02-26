@@ -40,11 +40,17 @@ public class GizmoManager
     private const float HandleHitSize = 10f;
     private const float HandleDrawSize = 7f;
 
+    // Multi-select drag state
+    private Vector2[] _multiDragStartPositions = Array.Empty<Vector2>();
+    private Entity[] _multiDragEntities = Array.Empty<Entity>();
+
     // For undo: snapshot at start of drag
     public Vector2 DragStartPosition => _dragStartEntityPos;
     public float DragStartRotation => _dragStartRotation;
     public Vector2 DragStartScale => _dragStartScale;
     public bool WasDragging { get; private set; }
+    public Vector2[] MultiDragStartPositions => _multiDragStartPositions;
+    public Entity[] MultiDragEntities => _multiDragEntities;
 
     public GizmoMode CurrentMode { get; set; } = GizmoMode.BoundingBox;
     public bool IsActive => _isDragging;
@@ -100,6 +106,7 @@ public class GizmoManager
                     _dragStartRotation = _worldManager.World.Get<Rotation>(entity).Angle;
                     var s = _worldManager.World.Get<Scale>(entity);
                     _dragStartScale = new Vector2(s.X, s.Y);
+                    SnapshotMultiSelectPositions();
                 }
             }
 
@@ -146,6 +153,7 @@ public class GizmoManager
                     _dragStartEntityPos = new Vector2(pos.X, pos.Y);
                     _dragStartRotation = _worldManager.World.Get<Rotation>(entity).Angle;
                     _dragStartScale = new Vector2(scale.X, scale.Y);
+                    SnapshotMultiSelectPositions();
                 }
             }
 
@@ -236,9 +244,15 @@ public class GizmoManager
 
         if (_activeHandle == BBoxHandle.Body)
         {
-            // Move
-            var newPos = _dragStartEntityPos + worldDelta;
-            world.Set(entity, new Position(newPos.X, newPos.Y));
+            // Move all selected entities
+            for (int i = 0; i < _multiDragEntities.Length; i++)
+            {
+                if (world.IsAlive(_multiDragEntities[i]))
+                {
+                    var newPos = _multiDragStartPositions[i] + worldDelta;
+                    world.Set(_multiDragEntities[i], new Position(newPos.X, newPos.Y));
+                }
+            }
         }
         else
         {
@@ -431,13 +445,21 @@ public class GizmoManager
         {
             case GizmoMode.Move:
             {
-                var newPos = _dragStartEntityPos;
+                var delta = Vector2.Zero;
                 if (_activeAxis == GizmoAxis.X || _activeAxis == GizmoAxis.Center)
-                    newPos.X += worldDelta.X;
+                    delta.X = worldDelta.X;
                 if (_activeAxis == GizmoAxis.Y || _activeAxis == GizmoAxis.Center)
-                    newPos.Y += worldDelta.Y;
+                    delta.Y = worldDelta.Y;
 
-                world.Set(entity, new Position(newPos.X, newPos.Y));
+                // Move all selected entities
+                for (int i = 0; i < _multiDragEntities.Length; i++)
+                {
+                    if (world.IsAlive(_multiDragEntities[i]))
+                    {
+                        var newPos = _multiDragStartPositions[i] + delta;
+                        world.Set(_multiDragEntities[i], new Position(newPos.X, newPos.Y));
+                    }
+                }
                 break;
             }
             case GizmoMode.Rotate:
@@ -462,6 +484,24 @@ public class GizmoManager
 
                 world.Set(entity, new Scale(newScale.X, newScale.Y));
                 break;
+            }
+        }
+    }
+
+    private void SnapshotMultiSelectPositions()
+    {
+        var selected = _editorState.SelectedEntities;
+        _multiDragEntities = new Entity[selected.Count];
+        _multiDragStartPositions = new Vector2[selected.Count];
+        var world = _worldManager.World;
+
+        for (int i = 0; i < selected.Count; i++)
+        {
+            _multiDragEntities[i] = selected[i];
+            if (world.IsAlive(selected[i]))
+            {
+                var p = world.Get<Position>(selected[i]);
+                _multiDragStartPositions[i] = new Vector2(p.X, p.Y);
             }
         }
     }

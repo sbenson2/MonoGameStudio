@@ -15,7 +15,7 @@ Roadmap milestones derived from the [Universal 2D Engine Toolkit](../INDEX.md) k
 
 #### Core (32 files)
 - [x] Arch ECS integration — entity CRUD, hierarchy, parent/child with circular-parenting prevention
-- [x] 18 component types: transforms (5), hierarchy (3), metadata (4), rendering (4), physics (3), audio (1), UI (1)
+- [x] 19 component types: transforms (5), hierarchy (3), metadata (5 — incl. EntityTag), rendering (4), physics (3), audio (1), UI (1)
 - [x] 4 systems: TransformPropagation, SpriteRendering, Animation, GumUI
 - [x] Scene serialization — two-pass JSON with GUID-based parent linking
 - [x] Component registry — typed descriptors, category filtering, no reflection
@@ -23,11 +23,11 @@ Roadmap milestones derived from the [Universal 2D Engine Toolkit](../INDEX.md) k
 - [x] Texture cache, logging (circular buffer, 1024 max), project file I/O
 
 #### Editor (50 files)
-- [x] 11 ImGui panels: Menu, Toolbar, Hierarchy, Inspector, Viewport, Console, AssetBrowser, SpriteSheet, Animation, StartScreen, Settings
+- [x] 11 ImGui panels: Menu, Toolbar, Hierarchy, Inspector, Viewport, Console, AssetBrowser, SpriteSheet, Animation, StartScreen, Settings + About dialog
 - [x] Viewport rendering — camera pan/zoom, grid, entity markers
 - [x] Gizmo tools — Move, Rotate, Scale with hit detection and drag
 - [x] Selection — click, box select, Ctrl multi-select
-- [x] Undo/Redo — 6 command types (Move, Create, Delete, Rename, AddComponent, RemoveComponent), 100-deep stack
+- [x] Undo/Redo — 8 command types (Move, MoveMultiple, Create, Delete, Duplicate, Rename, AddComponent, RemoveComponent), 100-deep stack
 - [x] Play mode — scene snapshot/restore
 - [x] Asset browser — folder tree, grid/list view, search, type filters, thumbnails, FileSystemWatcher auto-refresh, drag-drop source
 - [x] Sprite sheet editor — texture preview, auto-slice, frame rect editing, zoom
@@ -35,16 +35,22 @@ Roadmap milestones derived from the [Universal 2D Engine Toolkit](../INDEX.md) k
 - [x] Start screen — new project wizard, recent projects, templates (Empty, 2D Platformer, Top-Down RPG)
 - [x] Project management — create, open, close, save; `.mgstudio` files; `dotnet new mgdesktopgl` scaffolding
 - [x] Inspector — component drawer with field widgets (float, int, Vector2, Color, Rectangle, etc.), Add Component picker with category grouping
-- [x] Keyboard shortcuts (Ctrl+S/N/O, Ctrl+Z/Y, Q/W/E/R for gizmo modes)
+- [x] Keyboard shortcuts (Ctrl+S/N/O, Ctrl+Z/Y, Ctrl+C/V, Q/W/E/R for gizmo modes)
+- [x] Copy/paste entities (Ctrl+C/V) with full component data via ClipboardManager
+- [x] Prefab system — save as `.prefab.json`, drag-drop to instantiate from asset browser
+- [x] Multi-select transform — group move via MoveMultipleEntitiesCommand
+- [x] Entity search/filter bar in hierarchy panel
+- [x] Entity tags (EntityTag component)
+- [x] Collider visualization — wireframe outlines for BoxCollider/CircleCollider in viewport
+- [x] Virtual resolution preview — settings panel + viewport letterbox/pillarbox overlay
+- [x] Drag-drop assets onto viewport to create sprite entities
+- [x] Drag-drop asset paths into string fields in inspector
 - [x] macOS native integration — menu bar, title bar, file dialogs, toolbar
 - [x] Docking layout with profile save/load
 - [x] DPI-aware font loading (Inter, JetBrains Mono, FontAwesome)
 
 #### Desktop (1 file)
 - [x] Thin launcher — `new EditorGame(args).Run()`
-
-### What's Incomplete
-- [ ] Help > About dialog (single TODO in MenuBarPanel.cs:81)
 
 ### Known Quirks
 See CLAUDE.md "Known Quirks" section — 14 documented workarounds for Hexa.NET.ImGui, MonoGame, Arch ECS, and macOS interop.
@@ -58,8 +64,8 @@ Milestones derived from the Universal 2D Engine Toolkit docs. Each version targe
 ### v0.2 — Sprite Workflow Polish
 > Sources: G8 (Content Pipeline), G2 (Rendering & Graphics)
 
-- [ ] Drag-drop sprites from asset browser onto viewport to create entities
-- [ ] Drag-drop sprite sheets onto SpriteRenderer in inspector
+- [x] Drag-drop sprites from asset browser onto viewport to create entities
+- [x] Drag-drop sprite sheets onto SpriteRenderer in inspector
 - [ ] Atlas/texture packing (combine loose sprites into atlas)
 - [ ] Sprite import settings (filter mode, wrap mode)
 - [ ] Sprite origin/pivot editor in sprite sheet panel
@@ -67,12 +73,12 @@ Milestones derived from the Universal 2D Engine Toolkit docs. Each version targe
 ### v0.3 — Scene Editing QoL
 > Sources: G1 (Custom Code Recipes), G29 (Game Editor)
 
-- [ ] Multi-select transform (move/rotate/scale group)
-- [ ] Copy/paste entities (Ctrl+C/V with hierarchy)
+- [x] Multi-select transform (move/rotate/scale group)
+- [x] Copy/paste entities (Ctrl+C/V with hierarchy)
 - [ ] Duplicate shortcut (Ctrl+D)
-- [ ] Prefab system — save entity hierarchy as reusable `.prefab.json`
-- [ ] Scene search/filter in hierarchy panel
-- [ ] Entity tags and layers
+- [x] Prefab system — save entity hierarchy as reusable `.prefab.json`
+- [x] Scene search/filter in hierarchy panel
+- [x] Entity tags and layers
 
 ### v0.4 — Custom Code Integration
 > Sources: G1 (Custom Code Recipes), G15 (Game Loop), G18 (Game Programming Patterns)
@@ -87,7 +93,7 @@ Milestones derived from the Universal 2D Engine Toolkit docs. Each version targe
 ### v0.5 — Physics & Collision Visualization
 > Sources: G3 (Physics & Collision)
 
-- [ ] Collider outlines drawn in viewport (BoxCollider, CircleCollider)
+- [x] Collider outlines drawn in viewport (BoxCollider, CircleCollider)
 - [ ] Collider editing gizmos (drag handles to resize)
 - [ ] Aether Physics 2D integration
 - [ ] Collision layer matrix editor in project settings
@@ -106,7 +112,7 @@ Milestones derived from the Universal 2D Engine Toolkit docs. Each version targe
 ### v0.7 — Camera & Display
 > Sources: G19 (Display & Resolution), G20 (Camera Systems), G21 (Coordinate Systems), G24 (Window Management)
 
-- [ ] Virtual resolution preview in viewport (letterbox/pillarbox visualization)
+- [x] Virtual resolution preview in viewport (letterbox/pillarbox visualization)
 - [ ] Camera system configuration in inspector (follow target, deadzone, lookahead)
 - [ ] Multi-camera support
 - [ ] Viewport safe area overlay (G25)
@@ -155,8 +161,8 @@ Milestones derived from the Universal 2D Engine Toolkit docs. Each version targe
 
 Short-term tasks for the current session.
 
-- [ ] Implement Help > About dialog
-- [ ] First git commit of current working state
+- [x] Implement Help > About dialog
+- [x] First git commit of current working state
 
 ---
 
@@ -166,6 +172,7 @@ Newest first.
 
 | Date | Decision | Rationale |
 |------|----------|-----------|
+| 2026-02-25 | Feature push: prefabs, copy/paste, collider viz, multi-select, search, tags, drag-drop, virtual resolution, About dialog | Batch of QoL features pulled forward from v0.2–v0.7 roadmap. Completes v0.1 and partially fulfills v0.2, v0.3, v0.5, v0.7. |
 | 2026-02-25 | Created STATUS.md as single-file progress tracker | Solo dev — markdown beats ticket management. Sections can migrate to GitHub Issues later. |
 | 2026-02-24 | Abandoned native SwiftUI/NativeAOT rearchitecture | Tool-building trap. Deleted MonoGameStudio.Native and MonoGameStudio.macOS. ImGui is industry-proven for internal tools (Blizzard, Rockstar, id Software, Valve). Focus on making games. |
 | 2026-02-24 | Chose Hexa.NET.ImGui over ImGui.NET | Active development, better .NET 10 support, native docking/tables. Required migration from ImGui.NET API patterns. |

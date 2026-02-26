@@ -13,12 +13,14 @@ public class SceneHierarchyPanel
     private readonly EditorState _editorState;
     private Entity? _renamingEntity;
     private string _renameText = "";
+    private string _searchFilter = "";
 
     public event Action<Entity>? OnEntityCreated;
     public event Action<Entity>? OnEntityDeleted;
     public event Action<Entity>? OnEntityDuplicated;
     public event Action<Entity, string>? OnEntityRenamed;
     public event Action<Entity, Entity>? OnEntityReparented; // child, newParent
+    public event Action<Entity>? OnSaveAsPrefab;
 
     public SceneHierarchyPanel(WorldManager worldManager, EditorState editorState)
     {
@@ -31,6 +33,11 @@ public class SceneHierarchyPanel
         if (!isOpen) return;
         if (ImGui.Begin(LayoutDefinitions.Hierarchy, ref isOpen))
         {
+            // Search bar
+            ImGui.SetNextItemWidth(-1);
+            ImGui.InputTextWithHint("##HierarchySearch", "Search entities...", ref _searchFilter, 256);
+            ImGui.Separator();
+
             // Context menu on empty space
             if (ImGui.BeginPopupContextWindow("HierarchyContext"))
             {
@@ -43,10 +50,19 @@ public class SceneHierarchyPanel
                 ImGui.EndPopup();
             }
 
+            bool hasFilter = !string.IsNullOrEmpty(_searchFilter);
             var roots = _worldManager.GetRootEntities();
             foreach (var root in roots)
             {
-                DrawEntityNode(root);
+                if (hasFilter)
+                {
+                    if (EntityMatchesFilter(root))
+                        DrawEntityNode(root, true);
+                }
+                else
+                {
+                    DrawEntityNode(root, false);
+                }
             }
 
             // Drop on empty space to unparent
@@ -71,7 +87,7 @@ public class SceneHierarchyPanel
         ImGui.End();
     }
 
-    private void DrawEntityNode(Entity entity)
+    private void DrawEntityNode(Entity entity, bool forceOpen = false)
     {
         var world = _worldManager.World;
         if (!world.IsAlive(entity)) return;
@@ -85,6 +101,7 @@ public class SceneHierarchyPanel
         var flags = ImGuiTreeNodeFlags.OpenOnArrow | ImGuiTreeNodeFlags.SpanAvailWidth;
         if (isSelected) flags |= ImGuiTreeNodeFlags.Selected;
         if (!hasChildren) flags |= ImGuiTreeNodeFlags.Leaf | ImGuiTreeNodeFlags.NoTreePushOnOpen;
+        if (forceOpen && hasChildren) flags |= ImGuiTreeNodeFlags.DefaultOpen;
 
         var id = entity.Id;
         bool opened = ImGui.TreeNodeEx($"{name}##{id}", flags);
@@ -149,6 +166,10 @@ public class SceneHierarchyPanel
             {
                 StartRename(entity, name);
             }
+            if (ImGui.MenuItem("Save as Prefab"))
+            {
+                OnSaveAsPrefab?.Invoke(entity);
+            }
             ImGui.Separator();
             if (ImGui.MenuItem("Delete", "Del"))
             {
@@ -186,7 +207,9 @@ public class SceneHierarchyPanel
         {
             foreach (var child in children)
             {
-                DrawEntityNode(child);
+                if (forceOpen && !EntityMatchesFilter(child))
+                    continue;
+                DrawEntityNode(child, forceOpen);
             }
             ImGui.TreePop();
         }
@@ -206,5 +229,27 @@ public class SceneHierarchyPanel
             OnEntityRenamed?.Invoke(entity, _renameText);
         }
         _renamingEntity = null;
+    }
+
+    /// <summary>
+    /// Returns true if this entity or any of its descendants match the search filter.
+    /// </summary>
+    private bool EntityMatchesFilter(Entity entity)
+    {
+        var world = _worldManager.World;
+        if (!world.IsAlive(entity)) return false;
+
+        var name = world.Get<EntityName>(entity).Name;
+        if (name.Contains(_searchFilter, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        // Check children recursively
+        var children = _worldManager.GetChildren(entity);
+        foreach (var child in children)
+        {
+            if (EntityMatchesFilter(child))
+                return true;
+        }
+        return false;
     }
 }

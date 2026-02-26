@@ -6,6 +6,7 @@ using MonoGameStudio.Core.Data;
 using MonoGameStudio.Core.Logging;
 using MonoGameStudio.Core.Project;
 using MonoGameStudio.Core.Serialization;
+using PrefabSerializer = MonoGameStudio.Core.Serialization.PrefabSerializer;
 using MonoGameStudio.Core.Systems;
 using MonoGameStudio.Core.UI;
 using SpriteRenderingSystem = MonoGameStudio.Core.Systems.SpriteRenderingSystem;
@@ -54,11 +55,13 @@ public class EditorGame : Game
     private GizmoRenderer _gizmoRenderer = null!;
     private GizmoManager _gizmoManager = null!;
     private SelectionSystem _selectionSystem = null!;
+    private ColliderVisualization _colliderViz = null!;
 
     // Commands / Shortcuts
     private CommandHistory _commandHistory = null!;
     private ShortcutManager _shortcutManager = null!;
     private PlayModeManager _playModeManager = null!;
+    private ClipboardManager _clipboardManager = null!;
 
     // Gum UI
     private GumUIManager _gumUIManager = null!;
@@ -130,11 +133,13 @@ public class EditorGame : Game
         _gizmoRenderer = new GizmoRenderer();
         _gizmoManager = new GizmoManager(_worldManager, _editorState, _gizmoRenderer, _editorCamera);
         _selectionSystem = new SelectionSystem(_worldManager, _editorState, _editorCamera);
+        _colliderViz = new ColliderVisualization(_worldManager, _gizmoRenderer, _editorCamera);
 
         // Commands
         _commandHistory = new CommandHistory();
         _shortcutManager = new ShortcutManager();
         _playModeManager = new PlayModeManager(_worldManager, _editorState);
+        _clipboardManager = new ClipboardManager(_worldManager, _editorState);
 
         // Gum UI
         _gumUIManager = new GumUIManager();
@@ -171,6 +176,9 @@ public class EditorGame : Game
         // Layout profiles
         _layoutProfileManager = new LayoutProfileManager(_userDataManager.LayoutsDirectory, _dockingLayout);
 
+        // Wire hierarchy events
+        _hierarchy.OnSaveAsPrefab += SaveEntityAsPrefab;
+
         // Wire menu events
         _menuBar.OnNewScene += NewScene;
         _menuBar.OnSaveScene += SaveScene;
@@ -203,6 +211,8 @@ public class EditorGame : Game
         _shortcutManager.OnGizmoRotate += () => _gizmoManager.CurrentMode = GizmoMode.Rotate;
         _shortcutManager.OnGizmoScale += () => _gizmoManager.CurrentMode = GizmoMode.Scale;
         _shortcutManager.OnFocusSelected += FocusSelected;
+        _shortcutManager.OnCopy += () => _clipboardManager.Copy();
+        _shortcutManager.OnPaste += PasteFromClipboard;
 
         base.Initialize();
     }
@@ -215,9 +225,11 @@ public class EditorGame : Game
         _imGui.Initialize(iniPath, _editorPreferences);
 
         _settingsPanel = new SettingsPanel(_imGui, _userDataManager, _editorPreferences);
+        _settingsPanel.SetEditorState(_editorState);
 
         _viewportRenderer = new ViewportRenderer(GraphicsDevice, _imGui);
         _viewportPanel = new GameViewportPanel(_viewportRenderer);
+        _viewportPanel.OnAssetDropped += OnAssetDroppedOnViewport;
 
         _gridRenderer.LoadContent(GraphicsDevice);
         _gizmoRenderer.LoadContent(GraphicsDevice);
@@ -318,7 +330,17 @@ public class EditorGame : Game
 
                     if (posChanged || scaleChanged)
                     {
-                        if (_gizmoManager.CurrentMode == GizmoMode.BoundingBox)
+                        // Multi-select move: use MoveMultipleEntitiesCommand
+                        if (_editorState.SelectedEntities.Count > 1 && posChanged)
+                        {
+                            var delta = currentPos - _gizmoManager.DragStartPosition;
+                            _commandHistory.Execute(new MoveMultipleEntitiesCommand(
+                                _worldManager,
+                                _gizmoManager.MultiDragEntities,
+                                _gizmoManager.MultiDragStartPositions,
+                                delta));
+                        }
+                        else if (_gizmoManager.CurrentMode == GizmoMode.BoundingBox)
                         {
                             _commandHistory.Execute(new TransformEntityCommand(
                                 _worldManager, entity,
@@ -389,6 +411,35 @@ public class EditorGame : Game
 
         // Draw entity markers (for entities without sprites)
         DrawEntityMarkers();
+
+        // Draw collider outlines and virtual resolution overlay (edit mode only)
+        if (isEditMode)
+        {
+            _spriteBatch.End();
+            _spriteBatch.Begin(); // Screen space for overlays
+            _colliderViz.Draw(_spriteBatch, vpSize);
+
+            // Virtual resolution overlay
+            if (_editorState.ShowVirtualResolution)
+            {
+                var res = _editorState.CurrentVirtualResolution;
+                var halfW = res.Width * 0.5f;
+                var halfH = res.Height * 0.5f;
+                var camPos = _editorCamera.Position;
+                var worldMin = new Microsoft.Xna.Framework.Vector2(camPos.X - halfW, camPos.Y - halfH);
+                var worldMax = new Microsoft.Xna.Framework.Vector2(camPos.X + halfW, camPos.Y + halfH);
+                var screenMin = _editorCamera.WorldToScreen(worldMin, vpSize);
+                var screenMax = _editorCamera.WorldToScreen(worldMax, vpSize);
+                _gizmoRenderer.DrawRectOutline(_spriteBatch, screenMin, screenMax,
+                    new Color(255, 200, 0, 120), 2);
+            }
+
+            _spriteBatch.End();
+            _spriteBatch.Begin(
+                SpriteSortMode.Deferred, BlendState.AlphaBlend,
+                SamplerState.PointClamp, null, null, null,
+                _editorCamera.GetViewMatrix(vpSize));
+        }
 
         // Draw gizmos
         if (isEditMode)
@@ -737,6 +788,48 @@ public class EditorGame : Game
         }
     }
 
+    private void SaveEntityAsPrefab(Arch.Core.Entity entity)
+    {
+        if (!_worldManager.World.IsAlive(entity)) return;
+
+        var name = _worldManager.World.Get<MonoGameStudio.Core.Components.EntityName>(entity).Name;
+        var safeName = string.Join("_", name.Split(Path.GetInvalidFileNameChars()));
+
+        string dir;
+        if (_projectManager.IsProjectOpen)
+            dir = Path.Combine(_projectManager.CurrentProject!.ProjectDirectory, "Prefabs");
+        else
+            dir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Prefabs");
+
+        Directory.CreateDirectory(dir);
+
+        var path = Path.Combine(dir, $"{safeName}.prefab.json");
+        PrefabSerializer.SaveToFile(path, _worldManager, entity);
+    }
+
+    private void InstantiatePrefabAtPosition(string prefabPath, Microsoft.Xna.Framework.Vector2 worldPos)
+    {
+        var root = PrefabSerializer.InstantiateFromFile(prefabPath, _worldManager, worldPos);
+        if (root.HasValue)
+        {
+            _editorState.Select(root.Value);
+            _editorState.IsDirty = true;
+        }
+    }
+
+    private void PasteFromClipboard()
+    {
+        if (!_clipboardManager.HasClipboard) return;
+        var pasted = _clipboardManager.Paste();
+        if (pasted.Count > 0)
+        {
+            _editorState.ClearSelection();
+            foreach (var entity in pasted)
+                _editorState.AddToSelection(entity);
+            _editorState.IsDirty = true;
+        }
+    }
+
     private void FocusSelected()
     {
         var primary = _editorState.PrimarySelection;
@@ -744,5 +837,50 @@ public class EditorGame : Game
 
         var pos = _worldManager.World.Get<MonoGameStudio.Core.Components.Position>(primary.Value);
         _editorCamera.Position = new Microsoft.Xna.Framework.Vector2(pos.X, pos.Y);
+    }
+
+    private void OnAssetDroppedOnViewport(string assetPath, System.Numerics.Vector2 localPos)
+    {
+        var vpSize = new Microsoft.Xna.Framework.Vector2(
+            _viewportPanel.ViewportSize.X, _viewportPanel.ViewportSize.Y);
+        var worldPos = _editorCamera.ScreenToWorld(
+            new Microsoft.Xna.Framework.Vector2(localPos.X, localPos.Y), vpSize);
+
+        var fileName = Path.GetFileNameWithoutExtension(assetPath);
+        var ext = Path.GetExtension(assetPath).ToLowerInvariant();
+
+        // Handle prefab files
+        if (assetPath.EndsWith(".prefab.json", StringComparison.OrdinalIgnoreCase))
+        {
+            InstantiatePrefabAtPosition(assetPath, worldPos);
+            return;
+        }
+
+        // Handle texture files — create entity with SpriteRenderer
+        if (ext is ".png" or ".jpg" or ".jpeg" or ".bmp" or ".gif" or ".tga")
+        {
+            var entity = _worldManager.CreateEntity(fileName);
+            _worldManager.World.Set(entity, new MonoGameStudio.Core.Components.Position(worldPos.X, worldPos.Y));
+
+            // Make path relative to project if possible
+            var texturePath = assetPath;
+            if (_projectManager.IsProjectOpen)
+            {
+                var projectDir = _projectManager.CurrentProject!.ProjectDirectory;
+                if (assetPath.StartsWith(projectDir, StringComparison.OrdinalIgnoreCase))
+                    texturePath = Path.GetRelativePath(projectDir, assetPath);
+            }
+
+            var sprite = new MonoGameStudio.Core.Components.SpriteRenderer
+            {
+                TexturePath = texturePath,
+                Tint = Color.White,
+                Opacity = 1f
+            };
+            _worldManager.World.Add(entity, sprite);
+            _editorState.Select(entity);
+            _editorState.IsDirty = true;
+            Log.Info($"Created sprite entity '{fileName}' at ({worldPos.X:F0}, {worldPos.Y:F0})");
+        }
     }
 }

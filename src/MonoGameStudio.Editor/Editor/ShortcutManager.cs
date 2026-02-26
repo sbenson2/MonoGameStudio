@@ -20,6 +20,8 @@ public class ShortcutManager
     public event Action? OnGizmoMove;
     public event Action? OnGizmoRotate;
     public event Action? OnGizmoScale;
+    public event Action? OnCopy;
+    public event Action? OnPaste;
 
     private KeyboardState _prevKeyboard;
 
@@ -42,6 +44,8 @@ public class ShortcutManager
         if (ctrl && shift && JustPressed(keyboard, Keys.Z)) OnRedo?.Invoke();
         else if (ctrl && JustPressed(keyboard, Keys.Z)) OnUndo?.Invoke();
         if (ctrl && JustPressed(keyboard, Keys.D)) OnDuplicate?.Invoke();
+        if (ctrl && JustPressed(keyboard, Keys.C)) OnCopy?.Invoke();
+        if (ctrl && JustPressed(keyboard, Keys.V)) OnPaste?.Invoke();
         if (ctrl && JustPressed(keyboard, Keys.A)) OnSelectAll?.Invoke();
 
         if (JustPressed(keyboard, Keys.Delete)) OnDelete?.Invoke();

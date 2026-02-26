@@ -12,6 +12,7 @@ public class SettingsPanel
     private readonly ImGuiManager _imGui;
     private readonly UserDataManager _userData;
     private readonly EditorPreferences _prefs;
+    private EditorState? _editorState;
 
     private float _uiFontSize;
     private float _consoleFontSize;
@@ -27,6 +28,11 @@ public class SettingsPanel
         _consoleFontSize = prefs.ConsoleFontSize;
     }
 
+    public void SetEditorState(EditorState editorState)
+    {
+        _editorState = editorState;
+    }
+
     public void Draw(ref bool show)
     {
         if (!show) return;
@@ -39,6 +45,8 @@ public class SettingsPanel
             DrawStyleSection();
             ImGui.Spacing();
             DrawThemeSection();
+            ImGui.Spacing();
+            DrawVirtualResolutionSection();
             ImGui.Spacing();
             ImGui.Separator();
             ImGui.Spacing();
@@ -188,6 +196,38 @@ public class SettingsPanel
             if (ImGui.Button("Change Theme...", new Vector2(-1, 0)))
             {
                 Theme.ShowThemeSelector("Select a Theme");
+            }
+
+            ImGui.Unindent(8);
+        }
+    }
+
+    private void DrawVirtualResolutionSection()
+    {
+        if (_editorState == null) return;
+
+        if (ImGui.CollapsingHeader("Virtual Resolution", ImGuiTreeNodeFlags.DefaultOpen))
+        {
+            ImGui.Indent(8);
+
+            ImGui.Checkbox("Show Resolution Overlay", ref _editorState.ShowVirtualResolution);
+
+            if (_editorState.ShowVirtualResolution)
+            {
+                ImGui.SetNextItemWidth(-1);
+                var presets = EditorState.VirtualResolutionPresets;
+                var labels = new string[presets.Length];
+                for (int i = 0; i < presets.Length; i++)
+                    labels[i] = presets[i].Label;
+
+                int current = _editorState.VirtualResolutionPreset;
+                if (ImGui.Combo("##Resolution", ref current, labels, labels.Length))
+                {
+                    _editorState.VirtualResolutionPreset = current;
+                }
+
+                var res = _editorState.CurrentVirtualResolution;
+                ImGui.TextDisabled($"Target: {res.Width} x {res.Height}");
             }
 
             ImGui.Unindent(8);

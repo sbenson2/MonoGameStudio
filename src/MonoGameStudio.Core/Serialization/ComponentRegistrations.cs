@@ -325,6 +325,23 @@ public static class ComponentRegistrations
                     (c, v) => { var g = (GumScreen)c; g.IsActive = (bool)v!; return g; }),
             }
         });
+
+        // === General ===
+
+        ComponentRegistry.Register(new ComponentDescriptor<EntityTag>
+        {
+            Name = "EntityTag",
+            Category = "General",
+            Fields = new FieldDescriptor[]
+            {
+                StringField("Tag",
+                    c => ((EntityTag)c).Tag,
+                    (c, v) => { var t = (EntityTag)c; t.Tag = (string)v!; return t; }),
+                IntField("Layer",
+                    c => ((EntityTag)c).Layer,
+                    (c, v) => { var t = (EntityTag)c; t.Layer = (int)v!; return t; }),
+            }
+        });
     }
 
     // === Field factory helpers ===

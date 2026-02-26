@@ -1,6 +1,8 @@
 using Arch.Core;
 using MonoGameStudio.Core.Components;
 using MonoGameStudio.Core.Logging;
+using MonoGameStudio.Core.Serialization;
+using ComponentRegistry = MonoGameStudio.Core.Serialization.ComponentRegistry;
 
 namespace MonoGameStudio.Core.World;
 
@@ -90,6 +92,17 @@ public class WorldManager
         _world.Set(newEntity, new Position(pos.X + 20, pos.Y + 20));
         _world.Set(newEntity, rot);
         _world.Set(newEntity, scale);
+
+        // Copy all addable components (SpriteRenderer, Colliders, etc.)
+        ComponentRegistry.Initialize();
+        foreach (var descriptor in ComponentRegistry.GetAddableDescriptors())
+        {
+            if (descriptor.Has(_world, source))
+            {
+                var value = descriptor.Get(_world, source);
+                descriptor.Add(_world, newEntity, value);
+            }
+        }
 
         return newEntity;
     }

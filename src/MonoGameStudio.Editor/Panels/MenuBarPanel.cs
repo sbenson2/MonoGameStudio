@@ -8,6 +8,7 @@ namespace MonoGameStudio.Editor.Panels;
 public class MenuBarPanel
 {
     private readonly EditorState _editorState;
+    private bool _showAbout;
 
     public event Action? OnNewScene;
     public event Action? OnOpenScene;
@@ -78,12 +79,45 @@ public class MenuBarPanel
             {
                 if (ImGui.MenuItem("About"))
                 {
-                    // TODO: About popup
+                    ImGui.OpenPopup("About MonoGameStudio");
+                    _showAbout = true;
                 }
                 ImGui.EndMenu();
             }
 
             ImGui.EndMainMenuBar();
+        }
+
+        DrawAboutPopup();
+    }
+
+    private void DrawAboutPopup()
+    {
+        if (!_showAbout) return;
+
+        if (ImGui.BeginPopupModal("About MonoGameStudio", ref _showAbout, ImGuiWindowFlags.AlwaysAutoResize))
+        {
+            ImGui.Text("MonoGameStudio");
+            ImGui.Text("Version 0.1");
+            ImGui.Spacing();
+            ImGui.Separator();
+            ImGui.Spacing();
+            ImGui.Text("A 2D game editor built with MonoGame + Arch ECS + ImGui");
+            ImGui.Spacing();
+            ImGui.TextDisabled("MonoGame 3.8 | Arch ECS 2.1 | Hexa.NET.ImGui");
+            ImGui.Spacing();
+            ImGui.Separator();
+            ImGui.Spacing();
+
+            float buttonWidth = 120;
+            ImGui.SetCursorPosX((ImGui.GetWindowSize().X - buttonWidth) * 0.5f);
+            if (ImGui.Button("OK", new System.Numerics.Vector2(buttonWidth, 0)))
+            {
+                _showAbout = false;
+                ImGui.CloseCurrentPopup();
+            }
+
+            ImGui.EndPopup();
         }
     }
 

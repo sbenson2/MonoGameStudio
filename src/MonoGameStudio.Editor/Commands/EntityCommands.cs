@@ -179,6 +179,45 @@ public class TransformEntityCommand : ICommand
     }
 }
 
+public class MoveMultipleEntitiesCommand : ICommand
+{
+    private readonly WorldManager _worldManager;
+    private readonly Entity[] _entities;
+    private readonly Vector2[] _oldPositions;
+    private readonly Vector2 _delta;
+
+    public string Description => $"Move {_entities.Length} entities";
+
+    public MoveMultipleEntitiesCommand(WorldManager worldManager, Entity[] entities, Vector2[] oldPositions, Vector2 delta)
+    {
+        _worldManager = worldManager;
+        _entities = entities;
+        _oldPositions = oldPositions;
+        _delta = delta;
+    }
+
+    public void Execute()
+    {
+        for (int i = 0; i < _entities.Length; i++)
+        {
+            if (_worldManager.World.IsAlive(_entities[i]))
+            {
+                var newPos = _oldPositions[i] + _delta;
+                _worldManager.World.Set(_entities[i], new Position(newPos.X, newPos.Y));
+            }
+        }
+    }
+
+    public void Undo()
+    {
+        for (int i = 0; i < _entities.Length; i++)
+        {
+            if (_worldManager.World.IsAlive(_entities[i]))
+                _worldManager.World.Set(_entities[i], new Position(_oldPositions[i].X, _oldPositions[i].Y));
+        }
+    }
+}
+
 public class ModifyComponentCommand<T> : ICommand where T : struct
 {
     private readonly Arch.Core.World _world;

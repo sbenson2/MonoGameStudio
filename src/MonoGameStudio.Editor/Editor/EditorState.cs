@@ -20,6 +20,23 @@ public class EditorState
     public bool ShowAnimation = false;
     public bool ShowSettings = false;
 
+    // Virtual resolution preview
+    public bool ShowVirtualResolution = false;
+    public int VirtualResolutionPreset = 0; // index into VirtualResolutionPresets
+    public static readonly (string Label, int Width, int Height)[] VirtualResolutionPresets =
+    {
+        ("1920x1080 (Full HD)", 1920, 1080),
+        ("1280x720 (HD)", 1280, 720),
+        ("640x360 (SD)", 640, 360),
+        ("800x600", 800, 600),
+        ("480x270 (Low)", 480, 270),
+        ("320x180 (Pixel)", 320, 180),
+    };
+
+    public (int Width, int Height) CurrentVirtualResolution =>
+        (VirtualResolutionPresets[VirtualResolutionPreset].Width,
+         VirtualResolutionPresets[VirtualResolutionPreset].Height);
+
     public List<Entity> SelectedEntities { get; } = new();
 
     public void ClearSelection()

@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Text;
 using Hexa.NET.ImGui;
 using MonoGameStudio.Core.Serialization;
 
@@ -61,6 +62,22 @@ public static class FieldDrawers
                 {
                     modified = true;
                     component = field.SetValue(component, v);
+                }
+                // Accept drag-drop from asset browser onto string fields
+                if (ImGui.BeginDragDropTarget())
+                {
+                    var ddPayload = ImGui.AcceptDragDropPayload("ASSET_PATH");
+                    unsafe
+                    {
+                        if (ddPayload.Handle != null && ddPayload.Data != null)
+                        {
+                            var droppedPath = Encoding.UTF8.GetString(
+                                (byte*)ddPayload.Data, (int)ddPayload.DataSize).TrimEnd('\0');
+                            component = field.SetValue(component, droppedPath);
+                            modified = true;
+                        }
+                    }
+                    ImGui.EndDragDropTarget();
                 }
                 break;
             }
