@@ -7,7 +7,15 @@ public enum LogLevel
     Error
 }
 
-public readonly record struct LogEntry(string Message, LogLevel Level, DateTime Timestamp);
+public enum LogSource
+{
+    Editor,
+    GameStdOut,
+    GameStdErr,
+    Build
+}
+
+public readonly record struct LogEntry(string Message, LogLevel Level, DateTime Timestamp, LogSource Source = LogSource.Editor);
 
 public static class Log
 {
@@ -28,9 +36,13 @@ public static class Log
         return _buffer[bufferIndex];
     }
 
-    public static void Info(string message) => AddEntry(message, LogLevel.Info);
-    public static void Warn(string message) => AddEntry(message, LogLevel.Warning);
-    public static void Error(string message) => AddEntry(message, LogLevel.Error);
+    public static void Info(string message) => AddEntry(message, LogLevel.Info, LogSource.Editor);
+    public static void Warn(string message) => AddEntry(message, LogLevel.Warning, LogSource.Editor);
+    public static void Error(string message) => AddEntry(message, LogLevel.Error, LogSource.Editor);
+
+    public static void Info(string message, LogSource source) => AddEntry(message, LogLevel.Info, source);
+    public static void Warn(string message, LogSource source) => AddEntry(message, LogLevel.Warning, source);
+    public static void Error(string message, LogSource source) => AddEntry(message, LogLevel.Error, source);
 
     public static void Clear()
     {
@@ -38,9 +50,9 @@ public static class Log
         _head = 0;
     }
 
-    private static void AddEntry(string message, LogLevel level)
+    private static void AddEntry(string message, LogLevel level, LogSource source)
     {
-        var entry = new LogEntry(message, level, DateTime.Now);
+        var entry = new LogEntry(message, level, DateTime.Now, source);
         _buffer[_head] = entry;
         _head = (_head + 1) % MaxEntries;
         if (_count < MaxEntries) _count++;

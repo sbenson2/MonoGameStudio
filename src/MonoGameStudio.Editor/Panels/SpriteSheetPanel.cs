@@ -28,6 +28,9 @@ public class SpriteSheetPanel
     private float _zoom = 1f;
     private Vector2 _scroll = Vector2.Zero;
 
+    // Pivot drag state
+    private bool _isDraggingPivot;
+
     public void Initialize(TextureCache textureCache, ImGuiManager imGui)
     {
         _textureCache = textureCache;
@@ -164,8 +167,54 @@ public class SpriteSheetPanel
             }
         }
 
-        // Click to select frame
-        if (ImGui.IsItemHovered() && ImGui.IsMouseClicked(ImGuiMouseButton.Left) && _document != null)
+        // Draw pivot crosshair for selected frame
+        if (_document != null && _selectedFrame >= 0 && _selectedFrame < _document.Frames.Count)
+        {
+            var selFrame = _document.Frames[_selectedFrame];
+            float pivotScreenX = cursorPos.X + (selFrame.X + selFrame.PivotX * selFrame.Width) * fitScale;
+            float pivotScreenY = cursorPos.Y + (selFrame.Y + selFrame.PivotY * selFrame.Height) * fitScale;
+            var pivotPos = new Vector2(pivotScreenX, pivotScreenY);
+            float crossSize = 12f;
+            uint pivotColor = ImGui.GetColorU32(new Vector4(1f, 0.2f, 0.2f, 0.9f));
+
+            // Crosshair lines
+            drawList.AddLine(
+                pivotPos - new Vector2(crossSize, 0), pivotPos + new Vector2(crossSize, 0),
+                pivotColor, 2f);
+            drawList.AddLine(
+                pivotPos - new Vector2(0, crossSize), pivotPos + new Vector2(0, crossSize),
+                pivotColor, 2f);
+            // Circle at center
+            drawList.AddCircle(pivotPos, 4f, pivotColor, 12, 2f);
+
+            // Pivot drag interaction
+            var mousePos = ImGui.GetMousePos();
+            float distToPivot = Vector2.Distance(mousePos, pivotPos);
+            if (distToPivot < 10f && ImGui.IsMouseClicked(ImGuiMouseButton.Left) && ImGui.IsItemHovered())
+            {
+                _isDraggingPivot = true;
+            }
+        }
+
+        if (_isDraggingPivot && _document != null && _selectedFrame >= 0 && _selectedFrame < _document.Frames.Count)
+        {
+            if (ImGui.IsMouseDown(ImGuiMouseButton.Left))
+            {
+                var mousePos = ImGui.GetMousePos() - cursorPos;
+                var selFrame = _document.Frames[_selectedFrame];
+                float localX = mousePos.X / fitScale - selFrame.X;
+                float localY = mousePos.Y / fitScale - selFrame.Y;
+                selFrame.PivotX = Math.Clamp(localX / selFrame.Width, 0f, 1f);
+                selFrame.PivotY = Math.Clamp(localY / selFrame.Height, 0f, 1f);
+            }
+            else
+            {
+                _isDraggingPivot = false;
+            }
+        }
+
+        // Click to select frame (skip if dragging pivot)
+        if (!_isDraggingPivot && ImGui.IsItemHovered() && ImGui.IsMouseClicked(ImGuiMouseButton.Left) && _document != null)
         {
             var mousePos = ImGui.GetMousePos() - cursorPos;
             int texX = (int)(mousePos.X / fitScale);

@@ -11,6 +11,9 @@ public enum AssetType
     SpriteSheet,
     Animation,
     Tilemap,
+    Atlas,
+    Particle,
+    Material,
     Folder
 }
 
@@ -51,6 +54,9 @@ public class AssetEntry
         if (fileName.EndsWith(".spritesheet.json", StringComparison.OrdinalIgnoreCase)) return AssetType.SpriteSheet;
         if (fileName.EndsWith(".animation.json", StringComparison.OrdinalIgnoreCase)) return AssetType.Animation;
         if (fileName.EndsWith(".tilemap.json", StringComparison.OrdinalIgnoreCase)) return AssetType.Tilemap;
+        if (fileName.EndsWith(".atlas.json", StringComparison.OrdinalIgnoreCase)) return AssetType.Atlas;
+        if (fileName.EndsWith(".particle.json", StringComparison.OrdinalIgnoreCase)) return AssetType.Particle;
+        if (fileName.EndsWith(".material.json", StringComparison.OrdinalIgnoreCase)) return AssetType.Material;
 
         var ext = Path.GetExtension(fileName);
         return ClassifyExtension(ext);

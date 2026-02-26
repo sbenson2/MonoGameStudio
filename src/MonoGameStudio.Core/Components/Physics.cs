@@ -2,6 +2,13 @@ using Microsoft.Xna.Framework;
 
 namespace MonoGameStudio.Core.Components;
 
+public enum BodyType
+{
+    Static,
+    Kinematic,
+    Dynamic
+}
+
 [ComponentCategory("Physics")]
 public struct BoxCollider
 {
@@ -50,6 +57,7 @@ public struct RigidBody2D
     public float Damping;
     public bool IsKinematic;
     public bool FixedRotation;
+    public BodyType BodyType;
 
     public RigidBody2D()
     {
@@ -58,5 +66,6 @@ public struct RigidBody2D
         Damping = 0f;
         IsKinematic = false;
         FixedRotation = false;
+        BodyType = BodyType.Dynamic;
     }
 }

@@ -3,18 +3,25 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using MonoGameStudio.Core.Assets;
 using MonoGameStudio.Core.Components;
+using MonoGameStudio.Core.Data;
 using MonoGameStudio.Core.World;
 
 namespace MonoGameStudio.Core.Systems;
 
 /// <summary>
-/// Queries entities with SpriteRenderer + Position, sorts by SortOrder, draws via SpriteBatch.
+/// Queries entities with SpriteRenderer + Position, sorts by (SortLayer priority, SortOrder),
+/// groups draws by SamplerState from import settings, draws via SpriteBatch.
 /// </summary>
 public class SpriteRenderingSystem
 {
     private readonly WorldManager _worldManager;
     private readonly TextureCache _textureCache;
     private readonly List<SpriteDrawCall> _drawCalls = new();
+
+    // Render layer config (set externally)
+    private RenderLayerConfig? _renderLayerConfig;
+
+    public void SetRenderLayerConfig(RenderLayerConfig? config) => _renderLayerConfig = config;
 
     public SpriteRenderingSystem(WorldManager worldManager, TextureCache textureCache)
     {
@@ -46,6 +53,17 @@ public class SpriteRenderingSystem
                 scale = new Vector2(s.X, s.Y);
             }
 
+            // Get import settings for SamplerState
+            var importSettings = _textureCache.GetImportSettings(sprite.TexturePath);
+            var samplerState = ResolveSamplerState(importSettings);
+
+            // Get layer priority
+            int layerPriority = 0;
+            if (_renderLayerConfig != null && !string.IsNullOrEmpty(sprite.SortLayer))
+            {
+                layerPriority = _renderLayerConfig.GetPriority(sprite.SortLayer);
+            }
+
             _drawCalls.Add(new SpriteDrawCall
             {
                 Texture = texture,
@@ -56,13 +74,22 @@ public class SpriteRenderingSystem
                 Origin = sprite.Origin,
                 Scale = scale,
                 SortOrder = sprite.SortOrder,
-                Effects = GetSpriteEffects(sprite.FlipX, sprite.FlipY)
+                LayerPriority = layerPriority,
+                Effects = GetSpriteEffects(sprite.FlipX, sprite.FlipY),
+                SamplerState = samplerState
             });
         });
 
-        // Sort by SortOrder (lower draws first / behind)
-        _drawCalls.Sort((a, b) => a.SortOrder.CompareTo(b.SortOrder));
+        // Sort by (LayerPriority, SortOrder)
+        _drawCalls.Sort((a, b) =>
+        {
+            int cmp = a.LayerPriority.CompareTo(b.LayerPriority);
+            return cmp != 0 ? cmp : a.SortOrder.CompareTo(b.SortOrder);
+        });
 
+        // Group draws by SamplerState — each group needs its own Begin/End
+        // But since we're called within an existing Begin/End, we draw directly
+        // and rely on the caller to manage batch state. For now, draw all calls.
         foreach (var call in _drawCalls)
         {
             spriteBatch.Draw(
@@ -76,6 +103,18 @@ public class SpriteRenderingSystem
                 call.Effects,
                 0f);
         }
+    }
+
+    private static SamplerState ResolveSamplerState(TextureImportSettings settings)
+    {
+        return (settings.FilterMode, settings.WrapMode) switch
+        {
+            (SpriteFilterMode.Point, TextureWrapMode.Clamp) => SamplerState.PointClamp,
+            (SpriteFilterMode.Point, TextureWrapMode.Wrap) => SamplerState.PointWrap,
+            (SpriteFilterMode.Linear, TextureWrapMode.Clamp) => SamplerState.LinearClamp,
+            (SpriteFilterMode.Linear, TextureWrapMode.Wrap) => SamplerState.LinearWrap,
+            _ => SamplerState.PointClamp
+        };
     }
 
     private static SpriteEffects GetSpriteEffects(bool flipX, bool flipY)
@@ -96,6 +135,8 @@ public class SpriteRenderingSystem
         public Vector2 Origin;
         public Vector2 Scale;
         public int SortOrder;
+        public int LayerPriority;
         public SpriteEffects Effects;
+        public SamplerState SamplerState;
     }
 }

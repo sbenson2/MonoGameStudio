@@ -17,6 +17,11 @@ public class ConsolePanel
     private bool _autoScroll = true;
     private bool _scrollToBottom;
 
+    // Source filters
+    private bool _showEditor = true;
+    private bool _showGameOutput = true;
+    private bool _showBuild = true;
+
     public ConsolePanel() : this(null) { }
 
     public ConsolePanel(ImGuiManager? imGuiManager)
@@ -49,6 +54,25 @@ public class ConsolePanel
             ImGui.PopStyleColor();
             ImGui.SameLine();
 
+            ImGui.Text("|");
+            ImGui.SameLine();
+
+            // Source filter buttons
+            ImGui.PushStyleColor(ImGuiCol.Button, _showEditor ? new Vector4(0.5f, 0.5f, 0.7f, 1f) : new Vector4(0.3f, 0.3f, 0.3f, 1f));
+            if (ImGui.Button("Editor")) _showEditor = !_showEditor;
+            ImGui.PopStyleColor();
+            ImGui.SameLine();
+
+            ImGui.PushStyleColor(ImGuiCol.Button, _showGameOutput ? new Vector4(0.2f, 0.7f, 0.8f, 1f) : new Vector4(0.3f, 0.3f, 0.3f, 1f));
+            if (ImGui.Button("Game")) _showGameOutput = !_showGameOutput;
+            ImGui.PopStyleColor();
+            ImGui.SameLine();
+
+            ImGui.PushStyleColor(ImGuiCol.Button, _showBuild ? new Vector4(0.6f, 0.8f, 0.3f, 1f) : new Vector4(0.3f, 0.3f, 0.3f, 1f));
+            if (ImGui.Button("Build")) _showBuild = !_showBuild;
+            ImGui.PopStyleColor();
+            ImGui.SameLine();
+
             ImGui.SetNextItemWidth(200);
             ImGui.InputText("##search", ref _searchFilter, 256);
 
@@ -77,12 +101,7 @@ public class ConsolePanel
                         !entry.Message.Contains(_searchFilter, StringComparison.OrdinalIgnoreCase))
                         continue;
 
-                    var color = entry.Level switch
-                    {
-                        LogLevel.Warning => new Vector4(1f, 0.9f, 0.4f, 1f),
-                        LogLevel.Error => new Vector4(1f, 0.3f, 0.3f, 1f),
-                        _ => new Vector4(0.9f, 0.9f, 0.9f, 1f)
-                    };
+                    var color = GetEntryColor(entry);
 
                     ImGui.PushStyleColor(ImGuiCol.Text, color);
                     ImGui.TextUnformatted($"[{entry.Timestamp:HH:mm:ss}] {entry.Message}");
@@ -108,14 +127,51 @@ public class ConsolePanel
         ImGui.End();
     }
 
+    private static Vector4 GetEntryColor(LogEntry entry)
+    {
+        // Source-based coloring takes priority for game/build output
+        switch (entry.Source)
+        {
+            case LogSource.GameStdOut:
+                return new Vector4(0.4f, 0.9f, 0.9f, 1f); // Cyan
+            case LogSource.GameStdErr:
+                return new Vector4(1f, 0.3f, 0.3f, 1f); // Red
+            case LogSource.Build:
+                return new Vector4(0.7f, 0.9f, 0.3f, 1f); // Yellow-green
+        }
+
+        // Default: color by log level for Editor source
+        return entry.Level switch
+        {
+            LogLevel.Warning => new Vector4(1f, 0.9f, 0.4f, 1f),
+            LogLevel.Error => new Vector4(1f, 0.3f, 0.3f, 1f),
+            _ => new Vector4(0.9f, 0.9f, 0.9f, 1f)
+        };
+    }
+
     private bool ShouldShow(LogEntry entry)
     {
-        return entry.Level switch
+        // Check log level filter
+        bool levelVisible = entry.Level switch
         {
             LogLevel.Info => _showInfo,
             LogLevel.Warning => _showWarnings,
             LogLevel.Error => _showErrors,
             _ => true
         };
+
+        if (!levelVisible) return false;
+
+        // Check source filter
+        bool sourceVisible = entry.Source switch
+        {
+            LogSource.Editor => _showEditor,
+            LogSource.GameStdOut => _showGameOutput,
+            LogSource.GameStdErr => _showGameOutput,
+            LogSource.Build => _showBuild,
+            _ => true
+        };
+
+        return sourceVisible;
     }
 }

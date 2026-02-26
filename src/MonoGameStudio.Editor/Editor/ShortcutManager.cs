@@ -22,6 +22,7 @@ public class ShortcutManager
     public event Action? OnGizmoScale;
     public event Action? OnCopy;
     public event Action? OnPaste;
+    public event Action? OnGizmoCollider;
 
     private KeyboardState _prevKeyboard;
 
@@ -60,6 +61,7 @@ public class ShortcutManager
             if (JustPressed(keyboard, Keys.E)) OnGizmoRotate?.Invoke();
             if (JustPressed(keyboard, Keys.R)) OnGizmoScale?.Invoke();
             if (JustPressed(keyboard, Keys.T)) OnGizmoMove?.Invoke();
+            if (JustPressed(keyboard, Keys.C)) OnGizmoCollider?.Invoke();
         }
 
         _prevKeyboard = keyboard;

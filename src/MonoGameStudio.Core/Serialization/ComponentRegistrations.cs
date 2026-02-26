@@ -132,6 +132,9 @@ public static class ComponentRegistrations
                 IntField("SortOrder",
                     c => ((SpriteRenderer)c).SortOrder,
                     (c, v) => { var s = (SpriteRenderer)c; s.SortOrder = (int)v!; return s; }),
+                StringField("SortLayer",
+                    c => ((SpriteRenderer)c).SortLayer,
+                    (c, v) => { var s = (SpriteRenderer)c; s.SortLayer = (string)v!; return s; }),
                 BoolField("FlipX",
                     c => ((SpriteRenderer)c).FlipX,
                     (c, v) => { var s = (SpriteRenderer)c; s.FlipX = (bool)v!; return s; }),
@@ -184,6 +187,18 @@ public static class ComponentRegistrations
                 FloatField("Smoothing",
                     c => ((Camera2D)c).Smoothing,
                     (c, v) => { var cam = (Camera2D)c; cam.Smoothing = (float)v!; return cam; }),
+                GuidField("FollowTargetGuid",
+                    c => ((Camera2D)c).FollowTargetGuid,
+                    (c, v) => { var cam = (Camera2D)c; cam.FollowTargetGuid = (Guid)v!; return cam; }),
+                Vector2Field("DeadzoneSize",
+                    c => ((Camera2D)c).DeadzoneSize,
+                    (c, v) => { var cam = (Camera2D)c; cam.DeadzoneSize = (Vector2)v!; return cam; }),
+                Vector2Field("LookAhead",
+                    c => ((Camera2D)c).LookAhead,
+                    (c, v) => { var cam = (Camera2D)c; cam.LookAhead = (Vector2)v!; return cam; }),
+                FloatField("LookAheadSmoothing",
+                    c => ((Camera2D)c).LookAheadSmoothing,
+                    (c, v) => { var cam = (Camera2D)c; cam.LookAheadSmoothing = (float)v!; return cam; }),
             }
         });
 
@@ -276,6 +291,9 @@ public static class ComponentRegistrations
                 BoolField("FixedRotation",
                     c => ((RigidBody2D)c).FixedRotation,
                     (c, v) => { var r = (RigidBody2D)c; r.FixedRotation = (bool)v!; return r; }),
+                EnumField<BodyType>("BodyType",
+                    c => ((RigidBody2D)c).BodyType,
+                    (c, v) => { var r = (RigidBody2D)c; r.BodyType = (BodyType)v!; return r; }),
             }
         });
 
@@ -323,6 +341,40 @@ public static class ComponentRegistrations
                 BoolField("IsActive",
                     c => ((GumScreen)c).IsActive,
                     (c, v) => { var g = (GumScreen)c; g.IsActive = (bool)v!; return g; }),
+            }
+        });
+
+        // === Particles ===
+
+        ComponentRegistry.Register(new ComponentDescriptor<ParticleEmitter>
+        {
+            Name = "ParticleEmitter",
+            Category = "Particles",
+            Fields = new FieldDescriptor[]
+            {
+                StringField("PresetPath",
+                    c => ((ParticleEmitter)c).PresetPath,
+                    (c, v) => { var p = (ParticleEmitter)c; p.PresetPath = (string)v!; return p; }),
+                BoolField("IsEmitting",
+                    c => ((ParticleEmitter)c).IsEmitting,
+                    (c, v) => { var p = (ParticleEmitter)c; p.IsEmitting = (bool)v!; return p; }),
+                BoolField("PlayOnStart",
+                    c => ((ParticleEmitter)c).PlayOnStart,
+                    (c, v) => { var p = (ParticleEmitter)c; p.PlayOnStart = (bool)v!; return p; }),
+            }
+        });
+
+        // === Materials ===
+
+        ComponentRegistry.Register(new ComponentDescriptor<MaterialComponent>
+        {
+            Name = "MaterialComponent",
+            Category = "Rendering",
+            Fields = new FieldDescriptor[]
+            {
+                StringField("MaterialPath",
+                    c => ((MaterialComponent)c).MaterialPath,
+                    (c, v) => { var m = (MaterialComponent)c; m.MaterialPath = (string)v!; return m; }),
             }
         });
 
@@ -423,6 +475,17 @@ public static class ComponentRegistrations
         => new()
         {
             Name = name, Kind = FieldKind.Guid,
+            GetValue = get, SetValue = set,
+            Tooltip = tooltip, Header = header
+        };
+
+    private static FieldDescriptor EnumField<TEnum>(string name,
+        Func<object, object?> get, Func<object, object?, object> set,
+        string? tooltip = null, string? header = null) where TEnum : struct, Enum
+        => new()
+        {
+            Name = name, Kind = FieldKind.Enum,
+            EnumType = typeof(TEnum),
             GetValue = get, SetValue = set,
             Tooltip = tooltip, Header = header
         };

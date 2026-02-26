@@ -64,6 +64,16 @@ public class MenuBarPanel
                 ImGui.MenuItem("Console", (string?)null, ref _editorState.ShowConsole);
                 ImGui.MenuItem("Asset Browser", (string?)null, ref _editorState.ShowAssetBrowser);
                 ImGui.Separator();
+                ImGui.MenuItem("Sprite Sheet", (string?)null, ref _editorState.ShowSpriteSheet);
+                ImGui.MenuItem("Animation", (string?)null, ref _editorState.ShowAnimation);
+                ImGui.MenuItem("Tilemap Editor", (string?)null, ref _editorState.ShowTilemapEditor);
+                ImGui.MenuItem("Particle Editor", (string?)null, ref _editorState.ShowParticleEditor);
+                ImGui.Separator();
+                ImGui.MenuItem("Collision Matrix", (string?)null, ref _editorState.ShowCollisionMatrix);
+                ImGui.MenuItem("Shader Preview", (string?)null, ref _editorState.ShowShaderPreview);
+                ImGui.MenuItem("Post Processing", (string?)null, ref _editorState.ShowPostProcess);
+                ImGui.MenuItem("Game Run", (string?)null, ref _editorState.ShowGameRun);
+                ImGui.Separator();
                 ImGui.MenuItem("Settings", (string?)null, ref _editorState.ShowSettings);
                 ImGui.Separator();
 

@@ -7,6 +7,7 @@ using MonoGameStudio.Core.Logging;
 using MonoGameStudio.Core.Project;
 using MonoGameStudio.Core.Serialization;
 using PrefabSerializer = MonoGameStudio.Core.Serialization.PrefabSerializer;
+using MonoGameStudio.Core.Physics;
 using MonoGameStudio.Core.Systems;
 using MonoGameStudio.Core.UI;
 using SpriteRenderingSystem = MonoGameStudio.Core.Systems.SpriteRenderingSystem;
@@ -19,9 +20,10 @@ using MonoGameStudio.Editor.ImGuiIntegration;
 using MonoGameStudio.Editor.Layout;
 using MonoGameStudio.Editor.Panels;
 using MonoGameStudio.Editor.Platform;
-using Theme = ktsu.ImGuiStyler.Theme;
 using MonoGameStudio.Editor.Project;
+using MonoGameStudio.Editor.Runtime;
 using MonoGameStudio.Editor.Viewport;
+using Theme = ktsu.ImGuiStyler.Theme;
 
 namespace MonoGameStudio.Editor.Editor;
 
@@ -84,11 +86,50 @@ public class EditorGame : Game
     private EditorPreferences _editorPreferences = null!;
     private SettingsPanel _settingsPanel = null!;
 
+    // Runtime systems
+    private TweenSystem _tweenSystem = null!;
+    private TimerSystem _timerSystem = null!;
+    private ScreenTransitionSystem _screenTransitionSystem = null!;
+    private SceneManager _sceneManager = null!;
+
     // Sprite / Animation
     private SpriteRenderingSystem _spriteRenderingSystem = null!;
     private AnimationSystem _animationSystem = null!;
     private SpriteSheetPanel _spriteSheetPanel = null!;
     private AnimationPanel _animationPanel = null!;
+
+    // Physics
+    private PhysicsWorld2D _physicsWorld = null!;
+    private PhysicsSystem _physicsSystem = null!;
+    private CollisionMatrixPanel _collisionMatrixPanel = null!;
+    private PhysicsDebugOverlay _physicsDebugOverlay = null!;
+
+    // Tilemap
+    private TilemapRenderingSystem _tilemapRenderingSystem = null!;
+    private TilemapEditorPanel _tilemapEditorPanel = null!;
+
+    // Camera
+    private CameraSystem _cameraSystem = null!;
+
+    // Particles
+    private MonoGameStudio.Core.Systems.ParticleSystem _particleSystem = null!;
+    private ParticleEditorPanel _particleEditorPanel = null!;
+
+    // Audio
+    private MonoGameStudio.Core.Assets.AudioCache _audioCache = null!;
+    private AudioVisualization _audioVisualization = null!;
+
+    // Shaders / Post-processing
+    private ShaderPreviewPanel _shaderPreviewPanel = null!;
+    private PostProcessPanel _postProcessPanel = null!;
+
+    // External components
+    private ExternalComponentLoader _externalComponentLoader = null!;
+
+    // Game runtime
+    private GameProcessManager _gameProcessManager = null!;
+    private HotReloadWatcher? _hotReloadWatcher;
+    private GameRunPanel _gameRunPanel = null!;
 
     // Layout profiles
     private LayoutProfileManager _layoutProfileManager = null!;
@@ -141,6 +182,25 @@ public class EditorGame : Game
         _playModeManager = new PlayModeManager(_worldManager, _editorState);
         _clipboardManager = new ClipboardManager(_worldManager, _editorState);
 
+        // Runtime systems
+        _tweenSystem = new TweenSystem();
+        _timerSystem = new TimerSystem();
+        _screenTransitionSystem = new ScreenTransitionSystem();
+        _sceneManager = new SceneManager(_worldManager, _screenTransitionSystem);
+
+        // Physics
+        _physicsWorld = new PhysicsWorld2D(_worldManager);
+        _physicsSystem = new PhysicsSystem(_worldManager, _physicsWorld);
+
+        // Camera
+        _cameraSystem = new CameraSystem(_worldManager);
+
+        // External components
+        _externalComponentLoader = new ExternalComponentLoader();
+
+        // Game runtime
+        _gameProcessManager = new GameProcessManager();
+
         // Gum UI
         _gumUIManager = new GumUIManager();
         _gumUISystem = new GumUISystem(_worldManager, _gumUIManager);
@@ -171,6 +231,12 @@ public class EditorGame : Game
         _assetBrowser = new AssetBrowserPanel();
         _spriteSheetPanel = new SpriteSheetPanel();
         _animationPanel = new AnimationPanel();
+        _collisionMatrixPanel = new CollisionMatrixPanel();
+        _tilemapEditorPanel = new TilemapEditorPanel();
+        _particleEditorPanel = new ParticleEditorPanel();
+        _shaderPreviewPanel = new ShaderPreviewPanel();
+        _postProcessPanel = new PostProcessPanel();
+        _gameRunPanel = new GameRunPanel(_gameProcessManager);
         // SettingsPanel created in LoadContent after ImGuiManager is initialized
 
         // Layout profiles
@@ -210,6 +276,7 @@ public class EditorGame : Game
         _shortcutManager.OnGizmoMove += () => _gizmoManager.CurrentMode = GizmoMode.Move;
         _shortcutManager.OnGizmoRotate += () => _gizmoManager.CurrentMode = GizmoMode.Rotate;
         _shortcutManager.OnGizmoScale += () => _gizmoManager.CurrentMode = GizmoMode.Scale;
+        _shortcutManager.OnGizmoCollider += () => _gizmoManager.CurrentMode = GizmoMode.Collider;
         _shortcutManager.OnFocusSelected += FocusSelected;
         _shortcutManager.OnCopy += () => _clipboardManager.Copy();
         _shortcutManager.OnPaste += PasteFromClipboard;
@@ -241,6 +308,22 @@ public class EditorGame : Game
         _animationSystem = new AnimationSystem(_worldManager);
         _spriteSheetPanel.Initialize(_textureCache, _imGui);
 
+
+        // Tilemap rendering (needs texture cache)
+        _tilemapRenderingSystem = new TilemapRenderingSystem(_worldManager, _textureCache);
+
+        // Particle system
+        _particleSystem = new MonoGameStudio.Core.Systems.ParticleSystem(_worldManager);
+        _particleSystem.Initialize(GraphicsDevice);
+
+        // Audio cache
+        _audioCache = new MonoGameStudio.Core.Assets.AudioCache();
+
+        // Audio visualization (needs gizmo renderer + camera)
+        _audioVisualization = new AudioVisualization(_worldManager, _gizmoRenderer, _editorCamera);
+
+        // Physics debug overlay
+        _physicsDebugOverlay = new PhysicsDebugOverlay(_physicsWorld, _gizmoRenderer, _editorCamera);
 
         _gumUIManager.Initialize(this);
 
@@ -365,6 +448,27 @@ public class EditorGame : Game
         _animationSystem.Update(gameTime);
         _animationPanel.UpdatePreview((float)gameTime.ElapsedGameTime.TotalSeconds);
 
+        // Runtime systems (play mode only)
+        if (_editorState.Mode == EditorMode.Play)
+        {
+            float dt = (float)gameTime.ElapsedGameTime.TotalSeconds;
+            _tweenSystem.Update(dt);
+            _timerSystem.Update(dt);
+            _sceneManager.Update(dt);
+            _physicsSystem.Update(dt);
+            _cameraSystem.Update(gameTime);
+            _particleSystem.Update(gameTime);
+        }
+
+        // Poll game process output (always, not just play mode)
+        foreach (var line in _gameProcessManager.PollOutput())
+        {
+            var source = line.IsError
+                ? MonoGameStudio.Core.Logging.LogSource.GameStdErr
+                : MonoGameStudio.Core.Logging.LogSource.GameStdOut;
+            Log.Info(line.Text, source);
+        }
+
         // Poll asset database for file changes
         _assetDatabase.PollChanges();
 
@@ -406,8 +510,14 @@ public class EditorGame : Game
         if (isEditMode)
             _gridRenderer.Draw(_spriteBatch, _editorCamera, vpSize);
 
+        // Draw tilemap (behind sprites)
+        _tilemapRenderingSystem.Draw(_spriteBatch);
+
         // Draw sprites
         _spriteRenderingSystem.Draw(_spriteBatch);
+
+        // Draw particles
+        _particleSystem.Draw(_spriteBatch, _editorCamera.GetViewMatrix(vpSize));
 
         // Draw entity markers (for entities without sprites)
         DrawEntityMarkers();
@@ -432,7 +542,22 @@ public class EditorGame : Game
                 var screenMax = _editorCamera.WorldToScreen(worldMax, vpSize);
                 _gizmoRenderer.DrawRectOutline(_spriteBatch, screenMin, screenMax,
                     new Color(255, 200, 0, 120), 2);
+
+                // Safe area overlay
+                if (_editorState.ShowSafeArea)
+                {
+                    var preset = EditorState.SafeAreaPresets[_editorState.SafeAreaPreset];
+                    float insetX = (screenMax.X - screenMin.X) * preset.InsetPercent * 0.5f;
+                    float insetY = (screenMax.Y - screenMin.Y) * preset.InsetPercent * 0.5f;
+                    var safeMin = new Microsoft.Xna.Framework.Vector2(screenMin.X + insetX, screenMin.Y + insetY);
+                    var safeMax = new Microsoft.Xna.Framework.Vector2(screenMax.X - insetX, screenMax.Y - insetY);
+                    _gizmoRenderer.DrawRectOutline(_spriteBatch, safeMin, safeMax,
+                        new Color(255, 80, 80, 100), 1);
+                }
             }
+
+            // Audio source range visualization
+            _audioVisualization.Draw(_spriteBatch, vpSize);
 
             _spriteBatch.End();
             _spriteBatch.Begin(
@@ -484,6 +609,12 @@ public class EditorGame : Game
         _spriteSheetPanel.Draw(ref _editorState.ShowSpriteSheet);
         _animationPanel.Draw(ref _editorState.ShowAnimation);
         _settingsPanel.Draw(ref _editorState.ShowSettings);
+        _tilemapEditorPanel.Draw(ref _editorState.ShowTilemapEditor);
+        _collisionMatrixPanel.Draw(ref _editorState.ShowCollisionMatrix);
+        _particleEditorPanel.Draw(ref _editorState.ShowParticleEditor);
+        _shaderPreviewPanel.Draw(ref _editorState.ShowShaderPreview);
+        _postProcessPanel.Draw(ref _editorState.ShowPostProcess);
+        _gameRunPanel.Draw(ref _editorState.ShowGameRun);
 
         DrawSaveLayoutPopup();
 
@@ -622,8 +753,9 @@ public class EditorGame : Game
         var primary = _editorState.PrimarySelection;
         if (!primary.HasValue || !_worldManager.World.IsAlive(primary.Value)) return;
 
-        var dup = _worldManager.DuplicateEntity(primary.Value);
-        _editorState.Select(dup);
+        var cmd = new DuplicateEntityCommand(_worldManager, primary.Value);
+        _commandHistory.Execute(cmd);
+        _editorState.Select(cmd.DuplicatedEntity);
         _editorState.IsDirty = true;
     }
 
@@ -658,6 +790,18 @@ public class EditorGame : Game
         // Point asset browser at project directory
         _assetBrowser.SetProjectRoot(project.ProjectDirectory);
 
+        // Hot reload watcher for game project
+        _hotReloadWatcher?.Dispose();
+        _hotReloadWatcher = new HotReloadWatcher(project.ProjectDirectory);
+
+        // Load external game components if GameProject is set
+        if (!string.IsNullOrEmpty(project.GameProject))
+        {
+            var dllPath = Path.Combine(project.ProjectDirectory, project.GameProject);
+            if (File.Exists(dllPath))
+                _externalComponentLoader.LoadGameAssembly(dllPath);
+        }
+
         Window.Title = $"MonoGameStudio — {project.Name}";
     }
 
@@ -673,6 +817,9 @@ public class EditorGame : Game
         _gumUIManager.ClearUI();
         _assetBrowser.SetProjectRoot(null);
         _textureCache.Clear();
+        _hotReloadWatcher?.Dispose();
+        _hotReloadWatcher = null;
+        _externalComponentLoader.Unload();
         Window.Title = "MonoGame.Studio";
     }
 

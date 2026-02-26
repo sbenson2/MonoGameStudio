@@ -19,18 +19,38 @@ public class EditorState
     public bool ShowSpriteSheet = false;
     public bool ShowAnimation = false;
     public bool ShowSettings = false;
+    public bool ShowTilemapEditor = false;
+    public bool ShowCollisionMatrix = false;
+    public bool ShowParticleEditor = false;
+    public bool ShowShaderPreview = false;
+    public bool ShowPostProcess = false;
+    public bool ShowGameRun = false;
+
+    // Safe area overlay
+    public bool ShowSafeArea = false;
+    public int SafeAreaPreset = 0; // index into SafeAreaPresets
+    public static readonly (string Label, float InsetPercent)[] SafeAreaPresets =
+    {
+        ("TV Title Safe (90%)", 0.10f),
+        ("TV Action Safe (93%)", 0.07f),
+        ("Mobile Notch (5%)", 0.05f),
+    };
 
     // Virtual resolution preview
     public bool ShowVirtualResolution = false;
     public int VirtualResolutionPreset = 0; // index into VirtualResolutionPresets
+    public bool UseIntegerScaling = false;
     public static readonly (string Label, int Width, int Height)[] VirtualResolutionPresets =
     {
         ("1920x1080 (Full HD)", 1920, 1080),
+        ("2560x1440 (QHD)", 2560, 1440),
         ("1280x720 (HD)", 1280, 720),
         ("640x360 (SD)", 640, 360),
         ("800x600", 800, 600),
         ("480x270 (Low)", 480, 270),
         ("320x180 (Pixel)", 320, 180),
+        ("256x224 (NES)", 256, 224),
+        ("160x144 (Game Boy)", 160, 144),
     };
 
     public (int Width, int Height) CurrentVirtualResolution =>

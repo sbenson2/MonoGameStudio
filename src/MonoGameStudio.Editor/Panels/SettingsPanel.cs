@@ -48,6 +48,8 @@ public class SettingsPanel
             ImGui.Spacing();
             DrawVirtualResolutionSection();
             ImGui.Spacing();
+            DrawSafeAreaSection();
+            ImGui.Spacing();
             ImGui.Separator();
             ImGui.Spacing();
             DrawResetButton();
@@ -229,6 +231,37 @@ public class SettingsPanel
                 var res = _editorState.CurrentVirtualResolution;
                 ImGui.TextDisabled($"Target: {res.Width} x {res.Height}");
             }
+
+            ImGui.Unindent(8);
+        }
+    }
+
+    private void DrawSafeAreaSection()
+    {
+        if (_editorState == null) return;
+
+        if (ImGui.CollapsingHeader("Safe Area"))
+        {
+            ImGui.Indent(8);
+
+            ImGui.Checkbox("Show Safe Area Overlay", ref _editorState.ShowSafeArea);
+
+            if (_editorState.ShowSafeArea)
+            {
+                ImGui.SetNextItemWidth(-1);
+                var presets = EditorState.SafeAreaPresets;
+                var labels = new string[presets.Length];
+                for (int i = 0; i < presets.Length; i++)
+                    labels[i] = presets[i].Label;
+
+                int current = _editorState.SafeAreaPreset;
+                if (ImGui.Combo("##SafeArea", ref current, labels, labels.Length))
+                {
+                    _editorState.SafeAreaPreset = current;
+                }
+            }
+
+            ImGui.Checkbox("Integer Scaling (Pixel Art)", ref _editorState.UseIntegerScaling);
 
             ImGui.Unindent(8);
         }

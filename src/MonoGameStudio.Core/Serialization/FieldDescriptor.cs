@@ -18,6 +18,7 @@ public enum FieldKind
     Enum,
     Guid,
     Matrix,
+    EntityRef,
 }
 
 /// <summary>

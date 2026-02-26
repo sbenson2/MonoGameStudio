@@ -9,4 +9,7 @@ public static class LayoutDefinitions
     public const string AssetBrowser = "Asset Browser";
     public const string SpriteSheetEditor = "Sprite Sheet Editor";
     public const string Animation = "Animation";
+    public const string TilemapEditor = "Tilemap Editor";
+    public const string ShaderPreview = "Shader Preview";
+    public const string PostProcess = "Post Processing";
 }

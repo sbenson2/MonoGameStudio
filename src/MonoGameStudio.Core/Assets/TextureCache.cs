@@ -1,4 +1,5 @@
 using Microsoft.Xna.Framework.Graphics;
+using MonoGameStudio.Core.Data;
 using MonoGameStudio.Core.Logging;
 
 namespace MonoGameStudio.Core.Assets;
@@ -10,6 +11,7 @@ public class TextureCache : IDisposable
 {
     private readonly GraphicsDevice _graphicsDevice;
     private readonly Dictionary<string, Texture2D> _cache = new();
+    private readonly Dictionary<string, TextureImportSettings> _importSettingsCache = new();
 
     public TextureCache(GraphicsDevice graphicsDevice)
     {
@@ -68,11 +70,29 @@ public class TextureCache : IDisposable
         }
     }
 
+    public TextureImportSettings GetImportSettings(string filePath)
+    {
+        var fullPath = Path.GetFullPath(filePath);
+        if (_importSettingsCache.TryGetValue(fullPath, out var cached))
+            return cached;
+
+        var settings = TextureImportSettings.Load(fullPath);
+        _importSettingsCache[fullPath] = settings;
+        return settings;
+    }
+
+    public void InvalidateImportSettings(string filePath)
+    {
+        var fullPath = Path.GetFullPath(filePath);
+        _importSettingsCache.Remove(fullPath);
+    }
+
     public void Clear()
     {
         foreach (var tex in _cache.Values)
             tex.Dispose();
         _cache.Clear();
+        _importSettingsCache.Clear();
     }
 
     public void Dispose()

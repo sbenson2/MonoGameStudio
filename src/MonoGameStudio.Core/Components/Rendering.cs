@@ -10,6 +10,7 @@ public struct SpriteRenderer
     public Rectangle SourceRect;
     public Vector2 Origin;
     public int SortOrder;
+    public string SortLayer;
     public bool FlipX;
     public bool FlipY;
     public float Opacity;
@@ -21,6 +22,7 @@ public struct SpriteRenderer
         SourceRect = Rectangle.Empty;
         Origin = Vector2.Zero;
         SortOrder = 0;
+        SortLayer = "Default";
         FlipX = false;
         FlipY = false;
         Opacity = 1f;
@@ -51,6 +53,10 @@ public struct Camera2D
     public bool IsActive;
     public Rectangle Limits;
     public float Smoothing;
+    public Guid FollowTargetGuid;
+    public Vector2 DeadzoneSize;
+    public Vector2 LookAhead;
+    public float LookAheadSmoothing;
 
     public Camera2D()
     {
@@ -58,6 +64,10 @@ public struct Camera2D
         IsActive = false;
         Limits = Rectangle.Empty;
         Smoothing = 0f;
+        FollowTargetGuid = Guid.Empty;
+        DeadzoneSize = Vector2.Zero;
+        LookAhead = Vector2.Zero;
+        LookAheadSmoothing = 0f;
     }
 }
 

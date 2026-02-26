@@ -23,6 +23,15 @@ public static class ComponentRegistry
         _typeToDescriptor[descriptor.ComponentType] = descriptor;
     }
 
+    public static void Unregister(string name)
+    {
+        if (_nameToDescriptor.TryGetValue(name, out var descriptor))
+        {
+            _nameToDescriptor.Remove(name);
+            _typeToDescriptor.Remove(descriptor.ComponentType);
+        }
+    }
+
     public static IComponentDescriptor? GetDescriptor(string name) =>
         _nameToDescriptor.TryGetValue(name, out var d) ? d : null;
 

@@ -22,6 +22,9 @@ public class ProjectInfo
     [JsonPropertyName("gameProject")]
     public string? GameProject { get; set; }
 
+    [JsonPropertyName("scenes")]
+    public List<string> Scenes { get; set; } = new();
+
     [JsonPropertyName("editorSettings")]
     public EditorSettings EditorSettings { get; set; } = new();
 

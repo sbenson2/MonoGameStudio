@@ -36,6 +36,9 @@ public static class FontAwesomeIcons
     public const string Film = "\uf008";
     public const string Font = "\uf031";
 
+    // Build / Runtime
+    public const string Hammer = "\uf6e3";
+
     // Misc
     public const string Search = "\uf002";
     public const string Eye = "\uf06e";

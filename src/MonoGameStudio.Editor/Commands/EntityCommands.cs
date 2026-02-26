@@ -218,6 +218,34 @@ public class MoveMultipleEntitiesCommand : ICommand
     }
 }
 
+public class DuplicateEntityCommand : ICommand
+{
+    private readonly WorldManager _worldManager;
+    private readonly Entity _sourceEntity;
+    private Entity _duplicatedEntity;
+
+    public string Description => "Duplicate entity";
+    public Entity DuplicatedEntity => _duplicatedEntity;
+
+    public DuplicateEntityCommand(WorldManager worldManager, Entity sourceEntity)
+    {
+        _worldManager = worldManager;
+        _sourceEntity = sourceEntity;
+    }
+
+    public void Execute()
+    {
+        if (_worldManager.World.IsAlive(_sourceEntity))
+            _duplicatedEntity = _worldManager.DuplicateEntity(_sourceEntity);
+    }
+
+    public void Undo()
+    {
+        if (_worldManager.World.IsAlive(_duplicatedEntity))
+            _worldManager.DestroyEntity(_duplicatedEntity);
+    }
+}
+
 public class ModifyComponentCommand<T> : ICommand where T : struct
 {
     private readonly Arch.Core.World _world;

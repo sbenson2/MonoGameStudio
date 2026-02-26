@@ -136,5 +136,6 @@ public enum GizmoMode
     Move,
     Rotate,
     Scale,
-    BoundingBox
+    BoundingBox,
+    Collider
 }
