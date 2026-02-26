@@ -1,5 +1,5 @@
 using System.Numerics;
-using ImGuiNET;
+using Hexa.NET.ImGui;
 using MonoGameStudio.Editor.Layout;
 using MonoGameStudio.Editor.Viewport;
 
@@ -19,10 +19,11 @@ public class GameViewportPanel
         _viewportRenderer = viewportRenderer;
     }
 
-    public void Draw()
+    public void Draw(ref bool isOpen)
     {
+        if (!isOpen) return;
         ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, Vector2.Zero);
-        if (ImGui.Begin(LayoutDefinitions.Viewport, ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse))
+        if (ImGui.Begin(LayoutDefinitions.Viewport, ref isOpen, ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse))
         {
             var avail = ImGui.GetContentRegionAvail();
             ViewportSize = avail;
@@ -40,7 +41,7 @@ public class GameViewportPanel
                 if (_viewportRenderer.RenderTarget != null)
                 {
                     // OpenGL Y-flip: uv0=(0,1), uv1=(1,0)
-                    ImGui.Image(_viewportRenderer.TextureId, avail,
+                    ImGui.Image(_viewportRenderer.TextureRef, avail,
                         new Vector2(0, 1), new Vector2(1, 0));
                 }
             }

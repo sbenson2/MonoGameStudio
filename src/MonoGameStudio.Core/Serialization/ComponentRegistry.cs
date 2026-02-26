@@ -1,49 +1,88 @@
-using System.Reflection;
-
 namespace MonoGameStudio.Core.Serialization;
 
 /// <summary>
-/// Discovers and maps component types by short name for serialization.
+/// Component type registry using static descriptors (NativeAOT-safe).
+/// No reflection — all types registered explicitly via ComponentRegistrations.RegisterAll().
 /// </summary>
 public static class ComponentRegistry
 {
-    private static readonly Dictionary<string, Type> _nameToType = new();
-    private static readonly Dictionary<Type, string> _typeToName = new();
+    private static readonly Dictionary<string, IComponentDescriptor> _nameToDescriptor = new();
+    private static readonly Dictionary<Type, IComponentDescriptor> _typeToDescriptor = new();
     private static bool _initialized;
 
     public static void Initialize()
     {
         if (_initialized) return;
         _initialized = true;
-
-        // Scan the Core assembly for component structs
-        var coreAssembly = typeof(ComponentRegistry).Assembly;
-        RegisterComponentsFrom(coreAssembly);
+        ComponentRegistrations.RegisterAll();
     }
 
-    public static void RegisterComponentsFrom(Assembly assembly)
+    public static void Register(IComponentDescriptor descriptor)
     {
-        foreach (var type in assembly.GetExportedTypes())
-        {
-            if (type.IsValueType && !type.IsEnum && type.Namespace?.Contains("Components") == true)
-            {
-                Register(type);
-            }
-        }
+        _nameToDescriptor[descriptor.Name] = descriptor;
+        _typeToDescriptor[descriptor.ComponentType] = descriptor;
     }
 
-    public static void Register(Type type)
-    {
-        var name = type.Name;
-        _nameToType[name] = type;
-        _typeToName[type] = name;
-    }
+    public static IComponentDescriptor? GetDescriptor(string name) =>
+        _nameToDescriptor.TryGetValue(name, out var d) ? d : null;
+
+    public static IComponentDescriptor? GetDescriptor(Type type) =>
+        _typeToDescriptor.TryGetValue(type, out var d) ? d : null;
 
     public static Type? GetType(string name) =>
-        _nameToType.TryGetValue(name, out var type) ? type : null;
+        _nameToDescriptor.TryGetValue(name, out var d) ? d.ComponentType : null;
 
     public static string? GetName(Type type) =>
-        _typeToName.TryGetValue(type, out var name) ? name : null;
+        _typeToDescriptor.TryGetValue(type, out var d) ? d.Name : null;
 
-    public static IEnumerable<Type> AllTypes => _nameToType.Values;
+    public static string GetCategory(Type type) =>
+        _typeToDescriptor.TryGetValue(type, out var d) ? d.Category : "General";
+
+    public static IEnumerable<IComponentDescriptor> AllDescriptors => _nameToDescriptor.Values;
+
+    public static IEnumerable<Type> AllTypes => _nameToDescriptor.Values.Select(d => d.ComponentType);
+
+    /// <summary>
+    /// Returns descriptors suitable for the Add Component picker.
+    /// Excludes internal types and core transform types.
+    /// </summary>
+    public static IEnumerable<IComponentDescriptor> GetAddableDescriptors()
+    {
+        Initialize();
+        return _nameToDescriptor.Values
+            .Where(d => !d.IsInternal && !d.IsCoreTransform);
+    }
+
+    /// <summary>
+    /// Returns component types suitable for the Add Component picker.
+    /// </summary>
+    public static IEnumerable<Type> GetAddableTypes()
+    {
+        return GetAddableDescriptors().Select(d => d.ComponentType);
+    }
+
+    /// <summary>
+    /// Returns descriptors for components that should be serialized to scene JSON.
+    /// Excludes internal types but includes core transforms.
+    /// </summary>
+    public static IEnumerable<IComponentDescriptor> GetSerializableDescriptors()
+    {
+        Initialize();
+        return _nameToDescriptor.Values
+            .Where(d => !d.IsInternal);
+    }
+
+    /// <summary>
+    /// Returns component types that should be serialized to scene JSON.
+    /// </summary>
+    public static IEnumerable<Type> GetSerializableTypes()
+    {
+        return GetSerializableDescriptors().Select(d => d.ComponentType);
+    }
+
+    public static bool IsInternalType(Type type) =>
+        _typeToDescriptor.TryGetValue(type, out var d) && d.IsInternal;
+
+    public static bool IsCoreTransformType(Type type) =>
+        _typeToDescriptor.TryGetValue(type, out var d) && d.IsCoreTransform;
 }

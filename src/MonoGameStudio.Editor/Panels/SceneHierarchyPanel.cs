@@ -1,6 +1,5 @@
-using System.Text;
 using Arch.Core;
-using ImGuiNET;
+using Hexa.NET.ImGui;
 using MonoGameStudio.Core.Components;
 using MonoGameStudio.Core.World;
 using MonoGameStudio.Editor.Editor;
@@ -13,7 +12,7 @@ public class SceneHierarchyPanel
     private readonly WorldManager _worldManager;
     private readonly EditorState _editorState;
     private Entity? _renamingEntity;
-    private byte[] _renameBuffer = new byte[256];
+    private string _renameText = "";
 
     public event Action<Entity>? OnEntityCreated;
     public event Action<Entity>? OnEntityDeleted;
@@ -27,9 +26,10 @@ public class SceneHierarchyPanel
         _editorState = editorState;
     }
 
-    public void Draw()
+    public void Draw(ref bool isOpen)
     {
-        if (ImGui.Begin(LayoutDefinitions.Hierarchy))
+        if (!isOpen) return;
+        if (ImGui.Begin(LayoutDefinitions.Hierarchy, ref isOpen))
         {
             // Context menu on empty space
             if (ImGui.BeginPopupContextWindow("HierarchyContext"))
@@ -55,7 +55,7 @@ public class SceneHierarchyPanel
                 var payload = ImGui.AcceptDragDropPayload("ENTITY");
                 unsafe
                 {
-                    if (payload.NativePtr != null)
+                    if (payload.Handle != null)
                     {
                         var draggedEntity = *(Entity*)payload.Data;
                         if (_worldManager.World.IsAlive(draggedEntity))
@@ -105,7 +105,7 @@ public class SceneHierarchyPanel
             unsafe
             {
                 var e = entity;
-                ImGui.SetDragDropPayload("ENTITY", (IntPtr)(&e), (uint)sizeof(Entity));
+                ImGui.SetDragDropPayload("ENTITY", &e, (uint)sizeof(Entity));
             }
             ImGui.Text(name);
             ImGui.EndDragDropSource();
@@ -117,7 +117,7 @@ public class SceneHierarchyPanel
             var payload = ImGui.AcceptDragDropPayload("ENTITY");
             unsafe
             {
-                if (payload.NativePtr != null)
+                if (payload.Handle != null)
                 {
                     var draggedEntity = *(Entity*)payload.Data;
                     if (world.IsAlive(draggedEntity) && !draggedEntity.Equals(entity))
@@ -170,7 +170,7 @@ public class SceneHierarchyPanel
         {
             ImGui.SameLine();
             ImGui.SetKeyboardFocusHere();
-            if (ImGui.InputText($"##rename{id}", _renameBuffer, (uint)_renameBuffer.Length,
+            if (ImGui.InputText($"##rename{id}", ref _renameText, 256,
                 ImGuiInputTextFlags.EnterReturnsTrue | ImGuiInputTextFlags.AutoSelectAll))
             {
                 FinishRename(entity);
@@ -195,18 +195,15 @@ public class SceneHierarchyPanel
     private void StartRename(Entity entity, string currentName)
     {
         _renamingEntity = entity;
-        _renameBuffer = new byte[256];
-        var bytes = Encoding.UTF8.GetBytes(currentName);
-        Array.Copy(bytes, _renameBuffer, Math.Min(bytes.Length, _renameBuffer.Length - 1));
+        _renameText = currentName;
     }
 
     private void FinishRename(Entity entity)
     {
-        var newName = Encoding.UTF8.GetString(_renameBuffer).TrimEnd('\0');
-        if (!string.IsNullOrWhiteSpace(newName))
+        if (!string.IsNullOrWhiteSpace(_renameText))
         {
-            _worldManager.RenameEntity(entity, newName);
-            OnEntityRenamed?.Invoke(entity, newName);
+            _worldManager.RenameEntity(entity, _renameText);
+            OnEntityRenamed?.Invoke(entity, _renameText);
         }
         _renamingEntity = null;
     }

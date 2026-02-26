@@ -33,13 +33,20 @@ public class GizmoManager
     private float _dragStartRotation;
     private Vector2 _dragStartScale;
 
+    // Bounding box state
+    private BBoxHandle _hoveredHandle = BBoxHandle.None;
+    private BBoxHandle _activeHandle = BBoxHandle.None;
+    private const float DefaultEntitySize = 32f;
+    private const float HandleHitSize = 10f;
+    private const float HandleDrawSize = 7f;
+
     // For undo: snapshot at start of drag
     public Vector2 DragStartPosition => _dragStartEntityPos;
     public float DragStartRotation => _dragStartRotation;
     public Vector2 DragStartScale => _dragStartScale;
     public bool WasDragging { get; private set; }
 
-    public GizmoMode CurrentMode { get; set; } = GizmoMode.Move;
+    public GizmoMode CurrentMode { get; set; } = GizmoMode.BoundingBox;
     public bool IsActive => _isDragging;
 
     private const float ArrowLength = 60f;
@@ -74,6 +81,9 @@ public class GizmoManager
         var screenPos = _camera.WorldToScreen(new Vector2(pos.X, pos.Y), viewportSize);
         var localMouse = new Vector2(mouse.X, mouse.Y) - viewportOrigin;
         float zoom = _camera.Zoom;
+
+        if (CurrentMode == GizmoMode.BoundingBox)
+            return UpdateBoundingBox(mouse, entity, localMouse, viewportSize);
 
         if (mouse.LeftButton == ButtonState.Pressed)
         {
@@ -115,6 +125,185 @@ public class GizmoManager
         return _isDragging;
     }
 
+    private bool UpdateBoundingBox(MouseState mouse, Entity entity, Vector2 localMouse, Vector2 viewportSize)
+    {
+        var pos = _worldManager.World.Get<Position>(entity);
+        var scale = _worldManager.World.Get<Scale>(entity);
+        var entitySize = GetEntitySize(entity);
+        var (screenMin, screenMax) = GetScreenBounds(pos, scale, entitySize, viewportSize);
+
+        if (mouse.LeftButton == ButtonState.Pressed)
+        {
+            if (!_isDragging)
+            {
+                // Hit test handles, then body
+                var hit = HitTestBoundingBox(localMouse, screenMin, screenMax);
+                if (hit != BBoxHandle.None)
+                {
+                    _isDragging = true;
+                    _activeHandle = hit;
+                    _dragStartWorld = _camera.ScreenToWorld(localMouse, viewportSize);
+                    _dragStartEntityPos = new Vector2(pos.X, pos.Y);
+                    _dragStartRotation = _worldManager.World.Get<Rotation>(entity).Angle;
+                    _dragStartScale = new Vector2(scale.X, scale.Y);
+                }
+            }
+
+            if (_isDragging)
+            {
+                var worldMouse = _camera.ScreenToWorld(localMouse, viewportSize);
+                ApplyBoundingBox(entity, worldMouse, entitySize);
+                return true;
+            }
+        }
+        else
+        {
+            if (_isDragging)
+            {
+                WasDragging = true;
+                _isDragging = false;
+                _activeHandle = BBoxHandle.None;
+            }
+            // Hover detection
+            _hoveredHandle = HitTestBoundingBox(localMouse, screenMin, screenMax);
+        }
+
+        return _isDragging;
+    }
+
+    private Vector2 GetEntitySize(Entity entity)
+    {
+        var world = _worldManager.World;
+        if (world.Has<SpriteRenderer>(entity))
+        {
+            var sprite = world.Get<SpriteRenderer>(entity);
+            if (sprite.SourceRect.Width > 0 && sprite.SourceRect.Height > 0)
+                return new Vector2(sprite.SourceRect.Width, sprite.SourceRect.Height);
+        }
+        return new Vector2(DefaultEntitySize, DefaultEntitySize);
+    }
+
+    private (Vector2 min, Vector2 max) GetScreenBounds(Position pos, Scale scale, Vector2 entitySize, Vector2 viewportSize)
+    {
+        float halfW = entitySize.X * scale.X * 0.5f;
+        float halfH = entitySize.Y * scale.Y * 0.5f;
+
+        var worldMin = new Vector2(pos.X - halfW, pos.Y - halfH);
+        var worldMax = new Vector2(pos.X + halfW, pos.Y + halfH);
+
+        var screenMin = _camera.WorldToScreen(worldMin, viewportSize);
+        var screenMax = _camera.WorldToScreen(worldMax, viewportSize);
+
+        // Ensure min < max in screen space
+        return (
+            new Vector2(MathF.Min(screenMin.X, screenMax.X), MathF.Min(screenMin.Y, screenMax.Y)),
+            new Vector2(MathF.Max(screenMin.X, screenMax.X), MathF.Max(screenMin.Y, screenMax.Y))
+        );
+    }
+
+    private BBoxHandle HitTestBoundingBox(Vector2 mousePos, Vector2 screenMin, Vector2 screenMax)
+    {
+        var handles = GizmoRenderer.GetHandlePositions(screenMin, screenMax);
+
+        // Check corners first (higher priority)
+        for (int i = 0; i < 4; i++)
+        {
+            if (Vector2.Distance(mousePos, handles[i]) < HandleHitSize)
+                return (BBoxHandle)(i + 1);
+        }
+
+        // Edge midpoints
+        for (int i = 4; i < 8; i++)
+        {
+            if (Vector2.Distance(mousePos, handles[i]) < HandleHitSize)
+                return (BBoxHandle)(i + 1);
+        }
+
+        // Body (inside the box)
+        if (mousePos.X >= screenMin.X && mousePos.X <= screenMax.X &&
+            mousePos.Y >= screenMin.Y && mousePos.Y <= screenMax.Y)
+        {
+            return BBoxHandle.Body;
+        }
+
+        return BBoxHandle.None;
+    }
+
+    private void ApplyBoundingBox(Entity entity, Vector2 worldMouse, Vector2 entitySize)
+    {
+        var world = _worldManager.World;
+        var worldDelta = worldMouse - _dragStartWorld;
+
+        if (_activeHandle == BBoxHandle.Body)
+        {
+            // Move
+            var newPos = _dragStartEntityPos + worldDelta;
+            world.Set(entity, new Position(newPos.X, newPos.Y));
+        }
+        else
+        {
+            // Scale based on handle
+            ApplyScaleFromHandle(entity, worldDelta, entitySize);
+        }
+    }
+
+    private void ApplyScaleFromHandle(Entity entity, Vector2 worldDelta, Vector2 entitySize)
+    {
+        var world = _worldManager.World;
+        var newScale = _dragStartScale;
+        var newPos = _dragStartEntityPos;
+
+        // Determine which axes to affect based on handle
+        bool affectsX = _activeHandle is BBoxHandle.TopLeft or BBoxHandle.TopRight
+            or BBoxHandle.BottomLeft or BBoxHandle.BottomRight
+            or BBoxHandle.Left or BBoxHandle.Right;
+        bool affectsY = _activeHandle is BBoxHandle.TopLeft or BBoxHandle.TopRight
+            or BBoxHandle.BottomLeft or BBoxHandle.BottomRight
+            or BBoxHandle.Top or BBoxHandle.Bottom;
+
+        // Determine direction sign (which side of the box the handle is on)
+        float xSign = _activeHandle is BBoxHandle.TopRight or BBoxHandle.BottomRight or BBoxHandle.Right ? 1f : -1f;
+        float ySign = _activeHandle is BBoxHandle.BottomLeft or BBoxHandle.BottomRight or BBoxHandle.Bottom ? 1f : -1f;
+
+        // Check if Shift is held for proportional scaling on corners
+        var keyboard = Keyboard.GetState();
+        bool shiftHeld = keyboard.IsKeyDown(Keys.LeftShift) || keyboard.IsKeyDown(Keys.RightShift);
+        bool isCorner = _activeHandle is BBoxHandle.TopLeft or BBoxHandle.TopRight
+            or BBoxHandle.BottomLeft or BBoxHandle.BottomRight;
+
+        if (affectsX)
+        {
+            float scaleDelta = (worldDelta.X * xSign) / (entitySize.X * 0.5f);
+            newScale.X = MathF.Max(0.05f, _dragStartScale.X + scaleDelta * _dragStartScale.X * 0.5f);
+            // Offset position to keep opposite edge anchored
+            float posOffsetX = (newScale.X - _dragStartScale.X) * entitySize.X * 0.5f * xSign * 0.5f;
+            newPos.X = _dragStartEntityPos.X + posOffsetX;
+        }
+
+        if (affectsY)
+        {
+            float scaleDelta = (worldDelta.Y * ySign) / (entitySize.Y * 0.5f);
+            newScale.Y = MathF.Max(0.05f, _dragStartScale.Y + scaleDelta * _dragStartScale.Y * 0.5f);
+            float posOffsetY = (newScale.Y - _dragStartScale.Y) * entitySize.Y * 0.5f * ySign * 0.5f;
+            newPos.Y = _dragStartEntityPos.Y + posOffsetY;
+        }
+
+        // Proportional scaling with Shift on corners
+        if (shiftHeld && isCorner && affectsX && affectsY)
+        {
+            float avgRatio = ((newScale.X / _dragStartScale.X) + (newScale.Y / _dragStartScale.Y)) * 0.5f;
+            newScale.X = _dragStartScale.X * avgRatio;
+            newScale.Y = _dragStartScale.Y * avgRatio;
+            float posOffsetX = (newScale.X - _dragStartScale.X) * entitySize.X * 0.5f * xSign * 0.5f;
+            float posOffsetY = (newScale.Y - _dragStartScale.Y) * entitySize.Y * 0.5f * ySign * 0.5f;
+            newPos.X = _dragStartEntityPos.X + posOffsetX;
+            newPos.Y = _dragStartEntityPos.Y + posOffsetY;
+        }
+
+        world.Set(entity, new Scale(newScale.X, newScale.Y));
+        world.Set(entity, new Position(newPos.X, newPos.Y));
+    }
+
     public void Draw(SpriteBatch spriteBatch, Vector2 viewportSize)
     {
         var primary = _editorState.PrimarySelection;
@@ -137,7 +326,23 @@ public class GizmoManager
             case GizmoMode.Scale:
                 DrawScaleGizmo(spriteBatch, screenPos, zoom);
                 break;
+            case GizmoMode.BoundingBox:
+                DrawBoundingBoxGizmo(spriteBatch, entity, viewportSize);
+                break;
         }
+    }
+
+    private void DrawBoundingBoxGizmo(SpriteBatch spriteBatch, Entity entity, Vector2 viewportSize)
+    {
+        var pos = _worldManager.World.Get<Position>(entity);
+        var scale = _worldManager.World.Get<Scale>(entity);
+        var entitySize = GetEntitySize(entity);
+        var (screenMin, screenMax) = GetScreenBounds(pos, scale, entitySize, viewportSize);
+
+        var outlineColor = new Color(100, 180, 255);
+        var activeOrHovered = _isDragging ? _activeHandle : _hoveredHandle;
+
+        _renderer.DrawBoundingBox(spriteBatch, screenMin, screenMax, activeOrHovered, outlineColor, HandleDrawSize);
     }
 
     private void DrawMoveGizmo(SpriteBatch spriteBatch, Vector2 center, float zoom)

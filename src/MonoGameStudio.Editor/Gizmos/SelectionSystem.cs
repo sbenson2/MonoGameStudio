@@ -79,7 +79,7 @@ public class SelectionSystem
             var nearest = FindNearestEntity(worldMouse);
             if (nearest.HasValue)
             {
-                var io = ImGuiNET.ImGui.GetIO();
+                var io = Hexa.NET.ImGui.ImGui.GetIO();
                 if (io.KeyCtrl)
                     _editorState.ToggleSelection(nearest.Value);
                 else

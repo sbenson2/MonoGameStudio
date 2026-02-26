@@ -48,6 +48,30 @@ public class ColorConverter : JsonConverter<Color>
     }
 }
 
+public class RectangleConverter : JsonConverter<Rectangle>
+{
+    public override Rectangle Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        using var doc = JsonDocument.ParseValue(ref reader);
+        var root = doc.RootElement;
+        return new Rectangle(
+            root.GetProperty("x").GetInt32(),
+            root.GetProperty("y").GetInt32(),
+            root.GetProperty("width").GetInt32(),
+            root.GetProperty("height").GetInt32());
+    }
+
+    public override void Write(Utf8JsonWriter writer, Rectangle value, JsonSerializerOptions options)
+    {
+        writer.WriteStartObject();
+        writer.WriteNumber("x", value.X);
+        writer.WriteNumber("y", value.Y);
+        writer.WriteNumber("width", value.Width);
+        writer.WriteNumber("height", value.Height);
+        writer.WriteEndObject();
+    }
+}
+
 public class MatrixConverter : JsonConverter<Matrix>
 {
     public override Matrix Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)

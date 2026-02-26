@@ -12,11 +12,13 @@ public class SceneSerializer
     private static readonly JsonSerializerOptions _options = new()
     {
         WriteIndented = true,
+        TypeInfoResolver = new System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver(),
         Converters =
         {
             new Vector2Converter(),
             new ColorConverter(),
-            new MatrixConverter()
+            new MatrixConverter(),
+            new RectangleConverter()
         }
     };
 
@@ -45,24 +47,13 @@ public class SceneSerializer
                 }
             }
 
-            // Serialize Position, Rotation, Scale
-            if (world.Has<Position>(entity))
+            // Generic component serialization via descriptors (no reflection)
+            foreach (var descriptor in ComponentRegistry.GetSerializableDescriptors())
             {
-                var pos = world.Get<Position>(entity);
-                entityData.Components["Position"] = JsonSerializer.SerializeToElement(
-                    new { x = pos.X, y = pos.Y }, _options);
-            }
-            if (world.Has<Rotation>(entity))
-            {
-                var rot = world.Get<Rotation>(entity);
-                entityData.Components["Rotation"] = JsonSerializer.SerializeToElement(
-                    new { angle = rot.Angle }, _options);
-            }
-            if (world.Has<Scale>(entity))
-            {
-                var scale = world.Get<Scale>(entity);
-                entityData.Components["Scale"] = JsonSerializer.SerializeToElement(
-                    new { x = scale.X, y = scale.Y }, _options);
+                if (!descriptor.Has(world, entity)) continue;
+
+                var value = descriptor.Get(world, entity);
+                entityData.Components[descriptor.Name] = descriptor.SerializeToJson(value, _options);
             }
 
             doc.Entities.Add(entityData);
@@ -80,7 +71,7 @@ public class SceneSerializer
         worldManager.ResetWorld();
         var world = worldManager.World;
 
-        // Pass 1: create all entities
+        // Pass 1: create all entities with base archetype
         var guidToEntity = new Dictionary<string, Entity>();
 
         foreach (var entityData in doc.Entities)
@@ -96,22 +87,29 @@ public class SceneSerializer
                 new Children()
             );
 
-            // Deserialize components
-            if (entityData.Components.TryGetValue("Position", out var posEl))
+            // Deserialize all components from JSON via descriptors (no reflection)
+            foreach (var (componentName, jsonElement) in entityData.Components)
             {
-                world.Set(entity, new Position(
-                    posEl.GetProperty("x").GetSingle(),
-                    posEl.GetProperty("y").GetSingle()));
-            }
-            if (entityData.Components.TryGetValue("Rotation", out var rotEl))
-            {
-                world.Set(entity, new Rotation(rotEl.GetProperty("angle").GetSingle()));
-            }
-            if (entityData.Components.TryGetValue("Scale", out var scaleEl))
-            {
-                world.Set(entity, new Scale(
-                    scaleEl.GetProperty("x").GetSingle(),
-                    scaleEl.GetProperty("y").GetSingle()));
+                var descriptor = ComponentRegistry.GetDescriptor(componentName);
+                if (descriptor == null)
+                {
+                    Log.Warn($"Unknown component type '{componentName}' in entity '{entityData.Name}'");
+                    continue;
+                }
+
+                var value = descriptor.DeserializeFromJson(jsonElement, _options);
+                if (value == null) continue;
+
+                // Core transform types are already on the entity — use Set
+                if (descriptor.IsCoreTransform)
+                {
+                    descriptor.Set(world, entity, value);
+                }
+                else
+                {
+                    // Other components need to be Added
+                    descriptor.Add(world, entity, value);
+                }
             }
 
             guidToEntity[entityData.Guid] = entity;

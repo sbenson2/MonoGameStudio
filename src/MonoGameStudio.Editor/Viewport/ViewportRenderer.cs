@@ -1,3 +1,4 @@
+using Hexa.NET.ImGui;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using MonoGameStudio.Editor.ImGuiIntegration;
@@ -10,13 +11,13 @@ public class ViewportRenderer
     private readonly ImGuiManager _imGui;
 
     private RenderTarget2D? _renderTarget;
-    private IntPtr _textureId;
+    private ImTextureRef _textureRef;
     private bool _hasBoundTexture;
     private int _width;
     private int _height;
 
     public RenderTarget2D? RenderTarget => _renderTarget;
-    public IntPtr TextureId => _textureId;
+    public ImTextureRef TextureRef => _textureRef;
     public int Width => _width;
     public int Height => _height;
 
@@ -40,7 +41,7 @@ public class ViewportRenderer
         // Unbind old texture
         if (_hasBoundTexture)
         {
-            _imGui.UnbindTexture(_textureId);
+            _imGui.UnbindTexture(_textureRef);
             _hasBoundTexture = false;
         }
 
@@ -50,7 +51,7 @@ public class ViewportRenderer
         _width = width;
         _height = height;
 
-        _textureId = _imGui.BindTexture(_renderTarget);
+        _textureRef = _imGui.BindTexture(_renderTarget);
         _hasBoundTexture = true;
     }
 

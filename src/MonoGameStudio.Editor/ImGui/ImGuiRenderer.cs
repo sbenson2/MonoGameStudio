@@ -1,5 +1,5 @@
 using System.Runtime.InteropServices;
-using ImGuiNET;
+using Hexa.NET.ImGui;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
@@ -7,7 +7,8 @@ using Microsoft.Xna.Framework.Input;
 namespace MonoGameStudio.Editor.ImGuiIntegration;
 
 /// <summary>
-/// ImGui renderer for MonoGame. Based on the official ImGui.NET XNA sample.
+/// ImGui renderer for MonoGame using Hexa.NET.ImGui 2.x texture protocol.
+/// Based on the official Hexa.NET.ImGui MonoGame example.
 /// </summary>
 public class ImGuiRenderer
 {
@@ -25,9 +26,9 @@ public class ImGuiRenderer
     private IndexBuffer? _indexBuffer;
     private int _indexBufferSize;
 
-    private readonly Dictionary<IntPtr, Texture2D> _loadedTextures = new();
-    private int _textureId;
-    private IntPtr? _fontTextureId;
+    // Texture management (Hexa.NET.ImGui 2.x protocol)
+    private readonly Dictionary<ImTextureID, TextureInfo> _textures = new();
+    private int _nextTexId = 1;
 
     private int _scrollWheelValue;
     private int _horizontalScrollWheelValue;
@@ -53,36 +54,129 @@ public class ImGuiRenderer
         };
 
         SetupInput();
+        SetupBackendCapabilities();
     }
 
-    public unsafe void RebuildFontAtlas()
+    private void SetupBackendCapabilities()
     {
         var io = ImGui.GetIO();
-        io.Fonts.GetTexDataAsRGBA32(out byte* pixelData, out int width, out int height, out int bytesPerPixel);
+        io.BackendFlags |= ImGuiBackendFlags.RendererHasTextures;
 
-        var pixels = new byte[width * height * bytesPerPixel];
-        Marshal.Copy(new IntPtr(pixelData), pixels, 0, pixels.Length);
-
-        var tex2d = new Texture2D(_graphicsDevice, width, height, false, SurfaceFormat.Color);
-        tex2d.SetData(pixels);
-
-        if (_fontTextureId.HasValue) UnbindTexture(_fontTextureId.Value);
-
-        _fontTextureId = BindTexture(tex2d);
-        io.Fonts.SetTexID(_fontTextureId.Value);
-        io.Fonts.ClearTexData();
+        var platformIO = ImGui.GetPlatformIO();
+        if (_graphicsDevice.GraphicsProfile == GraphicsProfile.Reach)
+        {
+            platformIO.RendererTextureMaxWidth = 2048;
+            platformIO.RendererTextureMaxHeight = 2048;
+        }
+        else
+        {
+            platformIO.RendererTextureMaxWidth = 4096;
+            platformIO.RendererTextureMaxHeight = 4096;
+        }
     }
 
-    public IntPtr BindTexture(Texture2D texture)
+    public float GetDpiScale()
     {
-        var id = new IntPtr(_textureId++);
-        _loadedTextures[id] = texture;
-        return id;
+        if (_game.Window.ClientBounds.Width <= 0) return 1.0f;
+        return (float)_graphicsDevice.PresentationParameters.BackBufferWidth
+             / (float)_game.Window.ClientBounds.Width;
     }
 
-    public void UnbindTexture(IntPtr textureId)
+    public unsafe ImTextureRef BindTexture(Texture2D texture)
     {
-        _loadedTextures.Remove(textureId);
+        var texId = new IntPtr(_nextTexId++);
+        _textures[texId] = new TextureInfo { Texture = texture, IsManaged = false };
+        return new ImTextureRef(null, texId);
+    }
+
+    public void UnbindTexture(ImTextureRef textureRef)
+    {
+        if (_textures.TryGetValue(textureRef.TexID, out var info))
+        {
+            if (info.IsManaged)
+                info.Texture?.Dispose();
+            _textures.Remove(textureRef.TexID);
+        }
+    }
+
+    private unsafe void CreateTexture(ImTextureDataPtr textureData)
+    {
+        var format = textureData.Format == ImTextureFormat.Rgba32
+            ? SurfaceFormat.Color : SurfaceFormat.Alpha8;
+        var texture = new Texture2D(_graphicsDevice, textureData.Width, textureData.Height, false, format);
+
+        if (textureData.Pixels != null)
+        {
+            int bytesPerPixel = textureData.Format == ImTextureFormat.Rgba32 ? 4 : 1;
+            int dataSize = textureData.Width * textureData.Height * bytesPerPixel;
+            var managedData = new byte[dataSize];
+            Marshal.Copy(new IntPtr(textureData.Pixels), managedData, 0, dataSize);
+            texture.SetData(managedData);
+        }
+
+        _textures[textureData.TexID] = new TextureInfo { Texture = texture, IsManaged = true };
+        textureData.SetStatus(ImTextureStatus.Ok);
+    }
+
+    private unsafe void UpdateTextureData(ImTextureDataPtr textureData)
+    {
+        var texId = textureData.GetTexID();
+        if (!_textures.TryGetValue(texId, out var info)) return;
+
+        var texture = info.Texture!;
+        var newFormat = textureData.Format == ImTextureFormat.Rgba32
+            ? SurfaceFormat.Color : SurfaceFormat.Alpha8;
+
+        if (texture.Width != textureData.Width || texture.Height != textureData.Height || texture.Format != newFormat)
+        {
+            texture.Dispose();
+            texture = new Texture2D(_graphicsDevice, textureData.Width, textureData.Height, false, newFormat);
+            info.Texture = texture;
+        }
+
+        if (textureData.Pixels != null)
+        {
+            int bytesPerPixel = textureData.Format == ImTextureFormat.Rgba32 ? 4 : 1;
+            int dataSize = textureData.Width * textureData.Height * bytesPerPixel;
+            var managedData = new byte[dataSize];
+            Marshal.Copy(new IntPtr(textureData.Pixels), managedData, 0, dataSize);
+            texture.SetData(managedData);
+        }
+
+        textureData.SetStatus(ImTextureStatus.Ok);
+    }
+
+    private void DestroyTexture(ImTextureDataPtr textureData)
+    {
+        var texId = textureData.GetTexID();
+        if (_textures.TryGetValue(texId, out var info))
+        {
+            if (info.IsManaged)
+                info.Texture?.Dispose();
+            _textures.Remove(texId);
+        }
+    }
+
+    private unsafe void ProcessTextureUpdates(ImDrawDataPtr drawData)
+    {
+        if (drawData.Textures.Data == null) return;
+
+        for (int i = 0; i < drawData.Textures.Size; i++)
+        {
+            var textureData = drawData.Textures.Data[i];
+            switch (textureData.Status)
+            {
+                case ImTextureStatus.WantCreate:
+                    CreateTexture(textureData);
+                    break;
+                case ImTextureStatus.WantUpdates:
+                    UpdateTextureData(textureData);
+                    break;
+                case ImTextureStatus.WantDestroy:
+                    DestroyTexture(textureData);
+                    break;
+            }
+        }
     }
 
     public void BeforeLayout(GameTime gameTime)
@@ -92,10 +186,12 @@ public class ImGuiRenderer
         ImGui.NewFrame();
     }
 
-    public void AfterLayout()
+    public unsafe void AfterLayout()
     {
         ImGui.Render();
-        RenderDrawData(ImGui.GetDrawData());
+        var drawData = ImGui.GetDrawData();
+        ProcessTextureUpdates(drawData);
+        RenderDrawData(drawData);
     }
 
     private void SetupInput()
@@ -113,9 +209,11 @@ public class ImGuiRenderer
         _effect ??= new BasicEffect(_graphicsDevice);
 
         var io = ImGui.GetIO();
+
         _effect.World = Matrix.Identity;
         _effect.View = Matrix.Identity;
-        _effect.Projection = Matrix.CreateOrthographicOffCenter(0f, io.DisplaySize.X, io.DisplaySize.Y, 0f, -1f, 1f);
+        _effect.Projection = Matrix.CreateOrthographicOffCenter(
+            0f, io.DisplaySize.X, io.DisplaySize.Y, 0f, -1f, 1f);
         _effect.TextureEnabled = true;
         _effect.Texture = texture;
         _effect.VertexColorEnabled = true;
@@ -150,10 +248,11 @@ public class ImGuiRenderer
                 io.AddKeyEvent(imguikey, keyboard.IsKeyDown(key));
         }
 
+        var dpiScale = GetDpiScale();
         io.DisplaySize = new System.Numerics.Vector2(
-            _graphicsDevice.PresentationParameters.BackBufferWidth,
-            _graphicsDevice.PresentationParameters.BackBufferHeight);
-        io.DisplayFramebufferScale = new System.Numerics.Vector2(1f, 1f);
+            _game.Window.ClientBounds.Width,
+            _game.Window.ClientBounds.Height);
+        io.DisplayFramebufferScale = new System.Numerics.Vector2(dpiScale, dpiScale);
     }
 
     private static bool TryMapKeys(Keys key, out ImGuiKey imguikey)
@@ -179,7 +278,7 @@ public class ImGuiRenderer
             Keys.PrintScreen => ImGuiKey.PrintScreen,
             Keys.Insert => ImGuiKey.Insert,
             Keys.Delete => ImGuiKey.Delete,
-            >= Keys.D0 and <= Keys.D9 => ImGuiKey._0 + (key - Keys.D0),
+            >= Keys.D0 and <= Keys.D9 => ImGuiKey.Key0 + (key - Keys.D0),
             >= Keys.A and <= Keys.Z => ImGuiKey.A + (key - Keys.A),
             >= Keys.NumPad0 and <= Keys.NumPad9 => ImGuiKey.Keypad0 + (key - Keys.NumPad0),
             Keys.Multiply => ImGuiKey.KeypadMultiply,
@@ -212,7 +311,7 @@ public class ImGuiRenderer
         return imguikey != ImGuiKey.None;
     }
 
-    private void RenderDrawData(ImDrawDataPtr drawData)
+    private unsafe void RenderDrawData(ImDrawData* drawData)
     {
         var lastViewport = _graphicsDevice.Viewport;
         var lastScissorBox = _graphicsDevice.ScissorRectangle;
@@ -220,13 +319,15 @@ public class ImGuiRenderer
         var lastDepthStencil = _graphicsDevice.DepthStencilState;
         var lastBlendFactor = _graphicsDevice.BlendFactor;
         var lastBlendState = _graphicsDevice.BlendState;
+        var lastSamplerState = _graphicsDevice.SamplerStates[0];
 
         _graphicsDevice.BlendFactor = Color.White;
         _graphicsDevice.BlendState = BlendState.NonPremultiplied;
         _graphicsDevice.RasterizerState = _rasterizerState;
         _graphicsDevice.DepthStencilState = DepthStencilState.DepthRead;
+        _graphicsDevice.SamplerStates[0] = SamplerState.PointClamp;
 
-        drawData.ScaleClipRects(ImGui.GetIO().DisplayFramebufferScale);
+        drawData->ScaleClipRects(ImGui.GetIO().DisplayFramebufferScale);
 
         _graphicsDevice.Viewport = new Microsoft.Xna.Framework.Graphics.Viewport(0, 0,
             _graphicsDevice.PresentationParameters.BackBufferWidth,
@@ -241,24 +342,25 @@ public class ImGuiRenderer
         _graphicsDevice.DepthStencilState = lastDepthStencil;
         _graphicsDevice.BlendState = lastBlendState;
         _graphicsDevice.BlendFactor = lastBlendFactor;
+        _graphicsDevice.SamplerStates[0] = lastSamplerState;
     }
 
-    private unsafe void UpdateBuffers(ImDrawDataPtr drawData)
+    private unsafe void UpdateBuffers(ImDrawData* drawData)
     {
-        if (drawData.TotalVtxCount == 0) return;
+        if (drawData->TotalVtxCount == 0) return;
 
-        if (drawData.TotalVtxCount > _vertexBufferSize)
+        if (drawData->TotalVtxCount > _vertexBufferSize)
         {
             _vertexBuffer?.Dispose();
-            _vertexBufferSize = (int)(drawData.TotalVtxCount * 1.5f);
+            _vertexBufferSize = (int)(drawData->TotalVtxCount * 1.5f);
             _vertexBuffer = new VertexBuffer(_graphicsDevice, DrawVertDeclaration.Declaration, _vertexBufferSize, BufferUsage.None);
             _vertexData = new byte[_vertexBufferSize * DrawVertDeclaration.Size];
         }
 
-        if (drawData.TotalIdxCount > _indexBufferSize)
+        if (drawData->TotalIdxCount > _indexBufferSize)
         {
             _indexBuffer?.Dispose();
-            _indexBufferSize = (int)(drawData.TotalIdxCount * 1.5f);
+            _indexBufferSize = (int)(drawData->TotalIdxCount * 1.5f);
             _indexBuffer = new IndexBuffer(_graphicsDevice, IndexElementSize.SixteenBits, _indexBufferSize, BufferUsage.None);
             _indexData = new byte[_indexBufferSize * sizeof(ushort)];
         }
@@ -266,26 +368,26 @@ public class ImGuiRenderer
         int vtxOffset = 0;
         int idxOffset = 0;
 
-        for (int n = 0; n < drawData.CmdListsCount; n++)
+        for (int n = 0; n < drawData->CmdListsCount; n++)
         {
-            var cmdList = drawData.CmdLists[n];
+            ImDrawList* cmdList = drawData->CmdLists.Data[n];
 
             fixed (void* vtxDstPtr = &_vertexData[vtxOffset * DrawVertDeclaration.Size])
             fixed (void* idxDstPtr = &_indexData[idxOffset * sizeof(ushort)])
             {
-                Buffer.MemoryCopy((void*)cmdList.VtxBuffer.Data, vtxDstPtr, _vertexData.Length, cmdList.VtxBuffer.Size * DrawVertDeclaration.Size);
-                Buffer.MemoryCopy((void*)cmdList.IdxBuffer.Data, idxDstPtr, _indexData.Length, cmdList.IdxBuffer.Size * sizeof(ushort));
+                Buffer.MemoryCopy(cmdList->VtxBuffer.Data, vtxDstPtr, _vertexData.Length, cmdList->VtxBuffer.Size * DrawVertDeclaration.Size);
+                Buffer.MemoryCopy(cmdList->IdxBuffer.Data, idxDstPtr, _indexData.Length, cmdList->IdxBuffer.Size * sizeof(ushort));
             }
 
-            vtxOffset += cmdList.VtxBuffer.Size;
-            idxOffset += cmdList.IdxBuffer.Size;
+            vtxOffset += cmdList->VtxBuffer.Size;
+            idxOffset += cmdList->IdxBuffer.Size;
         }
 
-        _vertexBuffer!.SetData(_vertexData, 0, drawData.TotalVtxCount * DrawVertDeclaration.Size);
-        _indexBuffer!.SetData(_indexData, 0, drawData.TotalIdxCount * sizeof(ushort));
+        _vertexBuffer!.SetData(_vertexData, 0, drawData->TotalVtxCount * DrawVertDeclaration.Size);
+        _indexBuffer!.SetData(_indexData, 0, drawData->TotalIdxCount * sizeof(ushort));
     }
 
-    private void RenderCommandLists(ImDrawDataPtr drawData)
+    private unsafe void RenderCommandLists(ImDrawData* drawData)
     {
         _graphicsDevice.SetVertexBuffer(_vertexBuffer);
         _graphicsDevice.Indices = _indexBuffer;
@@ -293,26 +395,27 @@ public class ImGuiRenderer
         int vtxOffset = 0;
         int idxOffset = 0;
 
-        for (int n = 0; n < drawData.CmdListsCount; n++)
+        for (int n = 0; n < drawData->CmdListsCount; n++)
         {
-            var cmdList = drawData.CmdLists[n];
+            ImDrawList* cmdList = drawData->CmdLists.Data[n];
 
-            for (int cmdi = 0; cmdi < cmdList.CmdBuffer.Size; cmdi++)
+            for (int cmdi = 0; cmdi < cmdList->CmdBuffer.Size; cmdi++)
             {
-                var drawCmd = cmdList.CmdBuffer[cmdi];
+                ImDrawCmd* drawCmd = &cmdList->CmdBuffer.Data[cmdi];
 
-                if (drawCmd.ElemCount == 0) continue;
+                if (drawCmd->ElemCount == 0) continue;
 
-                if (!_loadedTextures.ContainsKey(drawCmd.TextureId))
-                    throw new InvalidOperationException($"Could not find a texture with id '{drawCmd.TextureId}'");
+                var texId = drawCmd->TexRef.GetTexID();
+                if (!_textures.TryGetValue(texId, out var textureInfo))
+                    throw new InvalidOperationException($"Could not find a texture with id '{texId}'");
 
                 _graphicsDevice.ScissorRectangle = new Rectangle(
-                    (int)drawCmd.ClipRect.X,
-                    (int)drawCmd.ClipRect.Y,
-                    (int)(drawCmd.ClipRect.Z - drawCmd.ClipRect.X),
-                    (int)(drawCmd.ClipRect.W - drawCmd.ClipRect.Y));
+                    (int)drawCmd->ClipRect.X,
+                    (int)drawCmd->ClipRect.Y,
+                    (int)(drawCmd->ClipRect.Z - drawCmd->ClipRect.X),
+                    (int)(drawCmd->ClipRect.W - drawCmd->ClipRect.Y));
 
-                var effect = UpdateEffect(_loadedTextures[drawCmd.TextureId]);
+                var effect = UpdateEffect(textureInfo.Texture!);
 
                 foreach (var pass in effect.CurrentTechnique.Passes)
                 {
@@ -321,17 +424,23 @@ public class ImGuiRenderer
 #pragma warning disable CS0618
                     _graphicsDevice.DrawIndexedPrimitives(
                         PrimitiveType.TriangleList,
-                        (int)drawCmd.VtxOffset + vtxOffset,
+                        (int)drawCmd->VtxOffset + vtxOffset,
                         0,
-                        cmdList.VtxBuffer.Size,
-                        (int)drawCmd.IdxOffset + idxOffset,
-                        (int)drawCmd.ElemCount / 3);
+                        cmdList->VtxBuffer.Size,
+                        (int)drawCmd->IdxOffset + idxOffset,
+                        (int)drawCmd->ElemCount / 3);
 #pragma warning restore CS0618
                 }
             }
 
-            vtxOffset += cmdList.VtxBuffer.Size;
-            idxOffset += cmdList.IdxBuffer.Size;
+            vtxOffset += cmdList->VtxBuffer.Size;
+            idxOffset += cmdList->IdxBuffer.Size;
         }
     }
+}
+
+internal sealed class TextureInfo
+{
+    public Texture2D? Texture { get; set; }
+    public bool IsManaged { get; set; }
 }

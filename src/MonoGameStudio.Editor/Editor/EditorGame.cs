@@ -1,16 +1,25 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
+using MonoGameStudio.Core.Assets;
 using MonoGameStudio.Core.Data;
 using MonoGameStudio.Core.Logging;
+using MonoGameStudio.Core.Project;
 using MonoGameStudio.Core.Serialization;
 using MonoGameStudio.Core.Systems;
+using MonoGameStudio.Core.UI;
+using SpriteRenderingSystem = MonoGameStudio.Core.Systems.SpriteRenderingSystem;
+using AnimationSystem = MonoGameStudio.Core.Systems.AnimationSystem;
 using MonoGameStudio.Core.World;
 using MonoGameStudio.Editor.Commands;
+using MonoGameStudio.Editor.Assets;
 using MonoGameStudio.Editor.Gizmos;
 using MonoGameStudio.Editor.ImGuiIntegration;
 using MonoGameStudio.Editor.Layout;
 using MonoGameStudio.Editor.Panels;
+using MonoGameStudio.Editor.Platform;
+using Theme = ktsu.ImGuiStyler.Theme;
+using MonoGameStudio.Editor.Project;
 using MonoGameStudio.Editor.Viewport;
 
 namespace MonoGameStudio.Editor.Editor;
@@ -51,10 +60,43 @@ public class EditorGame : Game
     private ShortcutManager _shortcutManager = null!;
     private PlayModeManager _playModeManager = null!;
 
+    // Gum UI
+    private GumUIManager _gumUIManager = null!;
+    private GumUISystem _gumUISystem = null!;
+
+    // Project management
+    private ProjectManager _projectManager = null!;
+    private StartScreenPanel _startScreen = null!;
+    private readonly string[] _launchArgs;
+
+    // Assets
+    private AssetDatabase _assetDatabase = null!;
+    private TextureCache _textureCache = null!;
+
+    // File dialogs
+    private IFileDialogService _fileDialogs = null!;
+
+    // Settings
+    private UserDataManager _userDataManager = null!;
+    private EditorPreferences _editorPreferences = null!;
+    private SettingsPanel _settingsPanel = null!;
+
+    // Sprite / Animation
+    private SpriteRenderingSystem _spriteRenderingSystem = null!;
+    private AnimationSystem _animationSystem = null!;
+    private SpriteSheetPanel _spriteSheetPanel = null!;
+    private AnimationPanel _animationPanel = null!;
+
+    // Layout profiles
+    private LayoutProfileManager _layoutProfileManager = null!;
+    private bool _showSaveLayoutPopup;
+    private string _saveLayoutName = "";
+
     private MouseState _prevMouse;
 
-    public EditorGame()
+    public EditorGame(string[]? args = null)
     {
+        _launchArgs = args ?? Array.Empty<string>();
         _graphics = new GraphicsDeviceManager(this)
         {
             PreferredBackBufferWidth = 1920,
@@ -66,7 +108,7 @@ public class EditorGame : Game
         Content.RootDirectory = "Content";
         IsMouseVisible = true;
         Window.AllowUserResizing = true;
-        Window.Title = "MonoGameStudio";
+        Window.Title = "MonoGame.Studio";
     }
 
     protected override void Initialize()
@@ -94,22 +136,53 @@ public class EditorGame : Game
         _shortcutManager = new ShortcutManager();
         _playModeManager = new PlayModeManager(_worldManager, _editorState);
 
+        // Gum UI
+        _gumUIManager = new GumUIManager();
+        _gumUISystem = new GumUISystem(_worldManager, _gumUIManager);
+
+        // User data + preferences (must be before ProjectManager for recent projects)
+        _userDataManager = new UserDataManager();
+        _editorPreferences = _userDataManager.LoadPreferences();
+
+        // File dialogs
+        _fileDialogs = OperatingSystem.IsMacOS()
+            ? new MacFileDialogService()
+            : new FallbackFileDialogService();
+
+        // Project management
+        _projectManager = new ProjectManager();
+        _projectManager.OnProjectOpened += OnProjectOpened;
+        _projectManager.OnProjectClosed += OnProjectClosed;
+
         // Panels (constructed after dependencies)
-        _menuBar = new MenuBarPanel();
+        _startScreen = new StartScreenPanel(_projectManager, _fileDialogs);
+        _menuBar = new MenuBarPanel(_editorState);
         _toolbar = new ToolbarPanel();
         _hierarchy = new SceneHierarchyPanel(_worldManager, _editorState);
         _inspector = new InspectorPanel(_worldManager, _editorState);
-        _console = new ConsolePanel();
+        _inspector.SetCommandHistory(_commandHistory);
+        _console = new ConsolePanel(_imGui);
+        _assetDatabase = new AssetDatabase();
         _assetBrowser = new AssetBrowserPanel();
+        _spriteSheetPanel = new SpriteSheetPanel();
+        _animationPanel = new AnimationPanel();
+        // SettingsPanel created in LoadContent after ImGuiManager is initialized
+
+        // Layout profiles
+        _layoutProfileManager = new LayoutProfileManager(_userDataManager.LayoutsDirectory, _dockingLayout);
 
         // Wire menu events
         _menuBar.OnNewScene += NewScene;
         _menuBar.OnSaveScene += SaveScene;
         _menuBar.OnSaveSceneAs += SaveSceneAs;
         _menuBar.OnOpenScene += OpenScene;
+        _menuBar.OnCloseProject += () => _projectManager.CloseProject();
         _menuBar.OnUndo += () => _commandHistory.Undo();
         _menuBar.OnRedo += () => _commandHistory.Redo();
-        _menuBar.OnResetLayout += () => _dockingLayout.ResetLayout();
+        _menuBar.OnLoadLayout += name => _layoutProfileManager.LoadProfile(name);
+        _menuBar.OnDeleteLayout += name => _layoutProfileManager.DeleteProfile(name);
+        _menuBar.OnSaveLayoutRequested += () => { _showSaveLayoutPopup = true; _saveLayoutName = ""; };
+        _menuBar.LayoutProfileManager = _layoutProfileManager;
 
         // Wire toolbar events
         _toolbar.OnPlay += () => _playModeManager.Play();
@@ -125,6 +198,7 @@ public class EditorGame : Game
         _shortcutManager.OnDelete += DeleteSelected;
         _shortcutManager.OnDuplicate += DuplicateSelected;
         _shortcutManager.OnGizmoNone += () => _gizmoManager.CurrentMode = GizmoMode.None;
+        _shortcutManager.OnGizmoBoundingBox += () => _gizmoManager.CurrentMode = GizmoMode.BoundingBox;
         _shortcutManager.OnGizmoMove += () => _gizmoManager.CurrentMode = GizmoMode.Move;
         _shortcutManager.OnGizmoRotate += () => _gizmoManager.CurrentMode = GizmoMode.Rotate;
         _shortcutManager.OnGizmoScale += () => _gizmoManager.CurrentMode = GizmoMode.Scale;
@@ -138,7 +212,9 @@ public class EditorGame : Game
         _spriteBatch = new SpriteBatch(GraphicsDevice);
 
         var iniPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "imgui.ini");
-        _imGui.Initialize(iniPath);
+        _imGui.Initialize(iniPath, _editorPreferences);
+
+        _settingsPanel = new SettingsPanel(_imGui, _userDataManager, _editorPreferences);
 
         _viewportRenderer = new ViewportRenderer(GraphicsDevice, _imGui);
         _viewportPanel = new GameViewportPanel(_viewportRenderer);
@@ -146,15 +222,58 @@ public class EditorGame : Game
         _gridRenderer.LoadContent(GraphicsDevice);
         _gizmoRenderer.LoadContent(GraphicsDevice);
 
+        // Asset browser and sprite systems (need GraphicsDevice for texture loading)
+        _textureCache = new TextureCache(GraphicsDevice);
+        _assetBrowser.Initialize(_assetDatabase, _textureCache, _imGui);
+        _spriteRenderingSystem = new SpriteRenderingSystem(_worldManager, _textureCache);
+        _animationSystem = new AnimationSystem(_worldManager);
+        _spriteSheetPanel.Initialize(_textureCache, _imGui);
+
+
+        _gumUIManager.Initialize(this);
+
+        // Native macOS menu bar, title bar, and toolbar
+        if (OperatingSystem.IsMacOS())
+        {
+            MacMenuCallbacks.Initialize();
+            MacMenuCallbacks.OnMenuAction += HandleNativeMenuAction;
+            MacMenuCallbacks.LayoutProfileManager = _layoutProfileManager;
+            MacMenuBar.Install(_editorState, _layoutProfileManager);
+            _layoutProfileManager.OnProfilesChanged += RebuildNativeLayoutsMenu;
+            _menuBar.UseNativeMenu = true;
+
+            // Native menu bar only — no toolbar padding needed (traffic lights are in title bar)
+        }
+
         Log.Info("MonoGameStudio loaded and ready.");
+
+        // Open project from CLI args (e.g., dotnet run -- /path/to/project.mgstudio)
+        if (_launchArgs.Length > 0 && _launchArgs[0].EndsWith(".mgstudio", StringComparison.OrdinalIgnoreCase))
+        {
+            _projectManager.OpenProject(_launchArgs[0]);
+        }
     }
 
     protected override void Update(GameTime gameTime)
     {
+        // Start screen: skip all editor logic
+        if (_editorState.Phase == ApplicationPhase.StartScreen)
+        {
+            base.Update(gameTime);
+            return;
+        }
+
         var mouse = Mouse.GetState();
         var keyboard = Keyboard.GetState();
 
         _shortcutManager.Update(keyboard);
+
+        // Gum UI update
+        bool isPlayMode = _editorState.Mode == EditorMode.Play;
+        _gumUIManager.IsInputEnabled = isPlayMode;
+        if (isPlayMode)
+            _gumUIManager.SetViewportOffset(_viewportPanel.ViewportOrigin.X, _viewportPanel.ViewportOrigin.Y);
+        _gumUIManager.Update(gameTime);
 
         // Sync toolbar gizmo mode
         _toolbar.CurrentMode = _editorState.Mode;
@@ -169,7 +288,7 @@ public class EditorGame : Game
         bool vpHovered = _viewportPanel.IsHovered;
 
         // Input routing: ImGui > Gizmo > Selection > Camera
-        if (!ImGuiNET.ImGui.GetIO().WantCaptureMouse && vpHovered && isEditMode)
+        if (!Hexa.NET.ImGui.ImGui.GetIO().WantCaptureMouse && vpHovered && isEditMode)
         {
             bool gizmoConsumed = _gizmoManager.Update(mouse, vpOrigin, vpSize);
 
@@ -191,11 +310,27 @@ public class EditorGame : Game
                 {
                     var pos = _worldManager.World.Get<MonoGameStudio.Core.Components.Position>(entity);
                     var currentPos = new Microsoft.Xna.Framework.Vector2(pos.X, pos.Y);
-                    if (currentPos != _gizmoManager.DragStartPosition)
+                    var scl = _worldManager.World.Get<MonoGameStudio.Core.Components.Scale>(entity);
+                    var currentScale = new Microsoft.Xna.Framework.Vector2(scl.X, scl.Y);
+
+                    bool posChanged = currentPos != _gizmoManager.DragStartPosition;
+                    bool scaleChanged = currentScale != _gizmoManager.DragStartScale;
+
+                    if (posChanged || scaleChanged)
                     {
-                        _commandHistory.Execute(new MoveEntityCommand(
-                            _worldManager, entity,
-                            _gizmoManager.DragStartPosition, currentPos));
+                        if (_gizmoManager.CurrentMode == GizmoMode.BoundingBox)
+                        {
+                            _commandHistory.Execute(new TransformEntityCommand(
+                                _worldManager, entity,
+                                _gizmoManager.DragStartPosition, currentPos,
+                                _gizmoManager.DragStartScale, currentScale));
+                        }
+                        else if (posChanged)
+                        {
+                            _commandHistory.Execute(new MoveEntityCommand(
+                                _worldManager, entity,
+                                _gizmoManager.DragStartPosition, currentPos));
+                        }
                     }
                 }
             }
@@ -204,15 +339,15 @@ public class EditorGame : Game
         // Transform propagation always runs
         _transformSystem.Update();
 
+        // Animation system
+        _animationSystem.Update(gameTime);
+        _animationPanel.UpdatePreview((float)gameTime.ElapsedGameTime.TotalSeconds);
+
+        // Poll asset database for file changes
+        _assetDatabase.PollChanges();
+
         // Update title bar
-        var title = "MonoGameStudio";
-        if (_editorState.CurrentScenePath != null)
-            title += $" - {Path.GetFileName(_editorState.CurrentScenePath)}";
-        if (_editorState.IsDirty)
-            title += "*";
-        if (_editorState.Mode != EditorMode.Edit)
-            title += $" [{_editorState.Mode}]";
-        Window.Title = title;
+        Window.Title = "MonoGame.Studio";
 
         _prevMouse = mouse;
         base.Update(gameTime);
@@ -220,6 +355,20 @@ public class EditorGame : Game
 
     protected override void Draw(GameTime gameTime)
     {
+        GraphicsDevice.Clear(new Color(40, 40, 40));
+
+        // Start screen: only draw the start screen panel + settings
+        if (_editorState.Phase == ApplicationPhase.StartScreen)
+        {
+            _imGui.BeginFrame(gameTime);
+            _startScreen.Draw();
+            _settingsPanel.Draw(ref _editorState.ShowSettings);
+            _imGui.EndFrame();
+            base.Draw(gameTime);
+            return;
+        }
+
+        // Editor phase: full render pipeline
         bool isEditMode = _editorState.Mode == EditorMode.Edit;
         var vpSize = new Microsoft.Xna.Framework.Vector2(
             _viewportPanel.ViewportSize.X, _viewportPanel.ViewportSize.Y);
@@ -235,7 +384,10 @@ public class EditorGame : Game
         if (isEditMode)
             _gridRenderer.Draw(_spriteBatch, _editorCamera, vpSize);
 
-        // Draw entity markers
+        // Draw sprites
+        _spriteRenderingSystem.Draw(_spriteBatch);
+
+        // Draw entity markers (for entities without sprites)
         DrawEntityMarkers();
 
         // Draw gizmos
@@ -257,21 +409,32 @@ public class EditorGame : Game
             _spriteBatch.End();
         }
 
+        // Gum UI renders in screen-space on the viewport RT
+        _gumUIManager.UpdateCanvasSize(_viewportRenderer.Width, _viewportRenderer.Height);
+        _gumUIManager.Draw();
+
         _viewportRenderer.End();
 
         // 2. Render backbuffer + ImGui
-        GraphicsDevice.Clear(new Color(40, 40, 40));
-
         _imGui.BeginFrame(gameTime);
 
-        _dockingLayout.SetupDockSpace();
+        var imViewport = Hexa.NET.ImGui.ImGui.GetMainViewport();
+
         _menuBar.Draw();
+        _toolbar.MenuBarOffset = _menuBar.UseNativeMenu ? 0f : Hexa.NET.ImGui.ImGui.GetFrameHeight();
         _toolbar.Draw();
-        _hierarchy.Draw();
-        _inspector.Draw();
-        _viewportPanel.Draw();
-        _console.Draw();
-        _assetBrowser.Draw();
+        _dockingLayout.TopOffset = _toolbar.BottomY - imViewport.Pos.Y;
+        _dockingLayout.SetupDockSpace();
+        _hierarchy.Draw(ref _editorState.ShowHierarchy);
+        _inspector.Draw(ref _editorState.ShowInspector);
+        _viewportPanel.Draw(ref _editorState.ShowViewport);
+        _console.Draw(ref _editorState.ShowConsole);
+        _assetBrowser.Draw(ref _editorState.ShowAssetBrowser);
+        _spriteSheetPanel.Draw(ref _editorState.ShowSpriteSheet);
+        _animationPanel.Draw(ref _editorState.ShowAnimation);
+        _settingsPanel.Draw(ref _editorState.ShowSettings);
+
+        DrawSaveLayoutPopup();
 
         _imGui.EndFrame();
 
@@ -324,6 +487,7 @@ public class EditorGame : Game
         _editorState.CurrentScenePath = null;
         _editorState.IsDirty = false;
         _commandHistory.Clear();
+        _gumUIManager.ClearUI();
         Log.Info("New scene created");
     }
 
@@ -333,6 +497,14 @@ public class EditorGame : Game
         {
             SceneSerializer.SaveToFile(_editorState.CurrentScenePath, _worldManager);
             _editorState.IsDirty = false;
+
+            // Persist camera position to project settings
+            if (_projectManager.IsProjectOpen)
+            {
+                _projectManager.UpdateCameraSettings(
+                    _editorCamera.Position.X, _editorCamera.Position.Y, _editorCamera.Zoom);
+                _projectManager.SaveProjectSettings();
+            }
         }
         else
         {
@@ -342,10 +514,18 @@ public class EditorGame : Game
 
     private void SaveSceneAs()
     {
-        // Simple approach: save to a default location
-        var dir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Scenes");
+        string dir;
+        if (_projectManager.IsProjectOpen)
+            dir = Path.Combine(_projectManager.CurrentProject!.ProjectDirectory, "Scenes");
+        else
+            dir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Scenes");
+
         Directory.CreateDirectory(dir);
-        var path = Path.Combine(dir, "scene.json");
+
+        var sceneFilter = new FileFilter("Scene Files", [".json"]);
+        var path = _fileDialogs.SaveFileDialog("Save Scene As", "scene.json", dir, [sceneFilter]);
+        if (path == null) return;
+
         SceneSerializer.SaveToFile(path, _worldManager);
         _editorState.CurrentScenePath = path;
         _editorState.IsDirty = false;
@@ -353,20 +533,24 @@ public class EditorGame : Game
 
     private void OpenScene()
     {
-        var dir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Scenes");
-        var path = Path.Combine(dir, "scene.json");
-        if (File.Exists(path))
+        string? scenesDir = null;
+        if (_projectManager.IsProjectOpen)
         {
-            SceneSerializer.LoadFromFile(path, _worldManager);
-            _editorState.CurrentScenePath = path;
-            _editorState.IsDirty = false;
-            _editorState.ClearSelection();
-            _commandHistory.Clear();
+            scenesDir = Path.Combine(_projectManager.CurrentProject!.ProjectDirectory, "Scenes");
+            if (!Directory.Exists(scenesDir))
+                scenesDir = _projectManager.CurrentProject.ProjectDirectory;
         }
-        else
-        {
-            Log.Warn("No scene file found to open");
-        }
+
+        var sceneFilter = new FileFilter("Scene Files", [".json"]);
+        var path = _fileDialogs.OpenFileDialog("Open Scene", scenesDir, [sceneFilter]);
+        if (path == null || !File.Exists(path)) return;
+
+        SceneSerializer.LoadFromFile(path, _worldManager);
+        _editorState.CurrentScenePath = path;
+        _editorState.IsDirty = false;
+        _editorState.ClearSelection();
+        _commandHistory.Clear();
+        _gumUISystem.OnSceneLoaded();
     }
 
     private void DeleteSelected()
@@ -390,6 +574,167 @@ public class EditorGame : Game
         var dup = _worldManager.DuplicateEntity(primary.Value);
         _editorState.Select(dup);
         _editorState.IsDirty = true;
+    }
+
+    // === Project lifecycle ===
+
+    private void OnProjectOpened(ProjectInfo project)
+    {
+        _editorState.Phase = ApplicationPhase.Editor;
+
+        // Load default scene if it exists
+        var scenePath = _projectManager.GetDefaultScenePath();
+        if (scenePath != null)
+        {
+            SceneSerializer.LoadFromFile(scenePath, _worldManager);
+            _editorState.CurrentScenePath = scenePath;
+            _editorState.IsDirty = false;
+            _editorState.ClearSelection();
+            _commandHistory.Clear();
+            _gumUISystem.OnSceneLoaded();
+        }
+        else
+        {
+            NewScene();
+        }
+
+        // Restore camera settings
+        _editorCamera.Position = new Microsoft.Xna.Framework.Vector2(
+            project.EditorSettings.CameraX,
+            project.EditorSettings.CameraY);
+        _editorCamera.Zoom = project.EditorSettings.CameraZoom;
+
+        // Point asset browser at project directory
+        _assetBrowser.SetProjectRoot(project.ProjectDirectory);
+
+        Window.Title = $"MonoGameStudio — {project.Name}";
+    }
+
+    private void OnProjectClosed()
+    {
+        _worldManager.ResetWorld();
+        _editorState.ClearSelection();
+        _editorState.CurrentScenePath = null;
+        _editorState.IsDirty = false;
+        _editorState.Mode = EditorMode.Edit;
+        _editorState.Phase = ApplicationPhase.StartScreen;
+        _commandHistory.Clear();
+        _gumUIManager.ClearUI();
+        _assetBrowser.SetProjectRoot(null);
+        _textureCache.Clear();
+        Window.Title = "MonoGame.Studio";
+    }
+
+    private void HandleNativeMenuAction(string action)
+    {
+        // Handle dynamic layout actions (LoadLayout:N, DeleteLayout:N)
+        if (action.StartsWith("LoadLayout:") && int.TryParse(action["LoadLayout:".Length..], out var loadIndex))
+        {
+            var profiles = _layoutProfileManager.ProfileNames;
+            if (loadIndex >= 0 && loadIndex < profiles.Count)
+                _layoutProfileManager.LoadProfile(profiles[loadIndex]);
+            return;
+        }
+
+        if (action.StartsWith("DeleteLayout:") && int.TryParse(action["DeleteLayout:".Length..], out var deleteIndex))
+        {
+            var deletable = _layoutProfileManager.GetDeletableProfiles();
+            if (deleteIndex >= 0 && deleteIndex < deletable.Count)
+                _layoutProfileManager.DeleteProfile(deletable[deleteIndex]);
+            return;
+        }
+
+        switch (action)
+        {
+            case "NewScene": NewScene(); break;
+            case "OpenScene": OpenScene(); break;
+            case "SaveScene": SaveScene(); break;
+            case "SaveSceneAs": SaveSceneAs(); break;
+            case "CloseProject": _projectManager.CloseProject(); break;
+            case "Undo": _commandHistory.Undo(); break;
+            case "Redo": _commandHistory.Redo(); break;
+            case "SaveLayout": _showSaveLayoutPopup = true; _saveLayoutName = ""; break;
+            case "ToggleHierarchy": _editorState.ShowHierarchy = !_editorState.ShowHierarchy; break;
+            case "ToggleInspector": _editorState.ShowInspector = !_editorState.ShowInspector; break;
+            case "ToggleViewport": _editorState.ShowViewport = !_editorState.ShowViewport; break;
+            case "ToggleConsole": _editorState.ShowConsole = !_editorState.ShowConsole; break;
+            case "ToggleAssetBrowser": _editorState.ShowAssetBrowser = !_editorState.ShowAssetBrowser; break;
+            case "ToggleSettings": _editorState.ShowSettings = !_editorState.ShowSettings; break;
+            case "ChangeTheme": Theme.ShowThemeSelector("Select a Theme"); break;
+        }
+    }
+
+    private void HandleNativeToolbarAction(string action)
+    {
+        switch (action)
+        {
+            case "GizmoNone": _gizmoManager.CurrentMode = GizmoMode.None; break;
+            case "GizmoBoundingBox": _gizmoManager.CurrentMode = GizmoMode.BoundingBox; break;
+            case "GizmoMove": _gizmoManager.CurrentMode = GizmoMode.Move; break;
+            case "GizmoRotate": _gizmoManager.CurrentMode = GizmoMode.Rotate; break;
+            case "GizmoScale": _gizmoManager.CurrentMode = GizmoMode.Scale; break;
+            case "PlayPause":
+                if (_editorState.Mode == EditorMode.Play)
+                    _playModeManager.Pause();
+                else
+                    _playModeManager.Play();
+                break;
+            case "Stop": _playModeManager.Stop(); break;
+        }
+    }
+
+    [System.Runtime.Versioning.SupportedOSPlatform("macos")]
+    private void RebuildNativeLayoutsMenu() => MacMenuBar.RebuildLayoutsMenu(_layoutProfileManager);
+
+    private void DrawSaveLayoutPopup()
+    {
+        if (_showSaveLayoutPopup)
+        {
+            Hexa.NET.ImGui.ImGui.OpenPopup("Save Layout");
+            _showSaveLayoutPopup = false;
+        }
+
+        var vp = Hexa.NET.ImGui.ImGui.GetMainViewport();
+        var center = new System.Numerics.Vector2(
+            vp.Pos.X + vp.Size.X * 0.5f,
+            vp.Pos.Y + vp.Size.Y * 0.5f);
+        Hexa.NET.ImGui.ImGui.SetNextWindowPos(center, Hexa.NET.ImGui.ImGuiCond.Appearing,
+            new System.Numerics.Vector2(0.5f, 0.5f));
+
+        if (Hexa.NET.ImGui.ImGui.BeginPopupModal("Save Layout", Hexa.NET.ImGui.ImGuiWindowFlags.AlwaysAutoResize))
+        {
+            Hexa.NET.ImGui.ImGui.Text("Layout name:");
+            Hexa.NET.ImGui.ImGui.SetNextItemWidth(300);
+
+            bool enterPressed = Hexa.NET.ImGui.ImGui.InputText("##layoutName", ref _saveLayoutName, 128,
+                Hexa.NET.ImGui.ImGuiInputTextFlags.EnterReturnsTrue);
+
+            if (Hexa.NET.ImGui.ImGui.IsWindowAppearing())
+                Hexa.NET.ImGui.ImGui.SetKeyboardFocusHere(-1);
+
+            bool validName = !string.IsNullOrWhiteSpace(_saveLayoutName) && _saveLayoutName != "Default";
+
+            if (!validName)
+                Hexa.NET.ImGui.ImGui.BeginDisabled();
+
+            if (Hexa.NET.ImGui.ImGui.Button("Save", new System.Numerics.Vector2(120, 0)) || (enterPressed && validName))
+            {
+                _layoutProfileManager.SaveCurrentLayout(_saveLayoutName.Trim());
+                Hexa.NET.ImGui.ImGui.CloseCurrentPopup();
+            }
+
+            if (!validName)
+                Hexa.NET.ImGui.ImGui.EndDisabled();
+
+            Hexa.NET.ImGui.ImGui.SameLine();
+
+            if (Hexa.NET.ImGui.ImGui.Button("Cancel", new System.Numerics.Vector2(120, 0)))
+            {
+                Hexa.NET.ImGui.ImGui.CloseCurrentPopup();
+            }
+
+            Hexa.NET.ImGui.ImGui.EndPopup();
+        }
     }
 
     private void FocusSelected()

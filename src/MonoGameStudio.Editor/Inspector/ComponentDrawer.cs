@@ -1,22 +1,18 @@
-using System.Reflection;
 using Arch.Core;
 using Arch.Core.Extensions;
-using ImGuiNET;
+using Hexa.NET.ImGui;
 using MonoGameStudio.Core.Components;
+using MonoGameStudio.Core.Serialization;
+using ComponentRegistry = MonoGameStudio.Core.Serialization.ComponentRegistry;
 
 namespace MonoGameStudio.Editor.Inspector;
 
 /// <summary>
-/// Reflection-based component drawer for the inspector.
-/// Caches FieldInfo[] per type and dispatches to FieldDrawers.
+/// Descriptor-based component drawer for the inspector.
+/// Uses IComponentDescriptor and FieldDescriptor instead of reflection.
 /// </summary>
 public class ComponentDrawer
 {
-    private static readonly Dictionary<Type, FieldInfo[]> _fieldCache = new();
-    private static readonly Dictionary<Type, MethodInfo> _getMethodCache = new();
-    private static readonly Dictionary<Type, MethodInfo> _setMethodCache = new();
-    private static readonly Dictionary<Type, MethodInfo> _hasMethodCache = new();
-
     // Types that are tags or internal and should not be drawn
     private static readonly HashSet<Type> _hiddenTypes = new()
     {
@@ -32,19 +28,16 @@ public class ComponentDrawer
     {
         if (_hiddenTypes.Contains(componentType)) return false;
 
-        var fields = GetFields(componentType);
-        if (fields.Length == 0) return false;
+        var descriptor = ComponentRegistry.GetDescriptor(componentType);
+        if (descriptor == null || descriptor.Fields.Count == 0) return false;
 
         bool modified = false;
-
-        var getMethod = GetGetMethod(componentType);
-        var setMethod = GetSetMethod(componentType);
 
         // Read current value (boxed)
         object component;
         try
         {
-            component = getMethod.Invoke(null, new object[] { world, entity })!;
+            component = descriptor.Get(world, entity);
         }
         catch
         {
@@ -52,18 +45,16 @@ public class ComponentDrawer
         }
 
         // Collapsing header for component
-        var typeName = componentType.Name;
-        bool open = ImGui.CollapsingHeader(typeName, ImGuiTreeNodeFlags.DefaultOpen);
+        bool open = ImGui.CollapsingHeader(descriptor.Name, ImGuiTreeNodeFlags.DefaultOpen);
 
         if (open)
         {
-            ImGui.PushID(typeName);
+            ImGui.PushID(descriptor.Name);
             ImGui.Indent();
 
-            foreach (var field in fields)
+            foreach (var field in descriptor.Fields)
             {
-                var label = field.Name;
-                if (FieldDrawers.DrawField(label, field, ref component))
+                if (FieldDrawers.DrawField(field, ref component))
                 {
                     modified = true;
                 }
@@ -76,7 +67,7 @@ public class ComponentDrawer
         // Write back if modified
         if (modified)
         {
-            setMethod.Invoke(null, new object[] { world, entity, component });
+            descriptor.Set(world, entity, component);
         }
 
         return modified;
@@ -91,50 +82,5 @@ public class ComponentDrawer
             types.Add(ct);
         }
         return types;
-    }
-
-    private static FieldInfo[] GetFields(Type type)
-    {
-        if (!_fieldCache.TryGetValue(type, out var fields))
-        {
-            fields = type.GetFields(BindingFlags.Public | BindingFlags.Instance);
-            _fieldCache[type] = fields;
-        }
-        return fields;
-    }
-
-    private static MethodInfo GetGetMethod(Type componentType)
-    {
-        if (!_getMethodCache.TryGetValue(componentType, out var method))
-        {
-            method = typeof(ComponentDrawerHelpers).GetMethod(nameof(ComponentDrawerHelpers.GetComponent))!
-                .MakeGenericMethod(componentType);
-            _getMethodCache[componentType] = method;
-        }
-        return method;
-    }
-
-    private static MethodInfo GetSetMethod(Type componentType)
-    {
-        if (!_setMethodCache.TryGetValue(componentType, out var method))
-        {
-            method = typeof(ComponentDrawerHelpers).GetMethod(nameof(ComponentDrawerHelpers.SetComponent))!
-                .MakeGenericMethod(componentType);
-            _setMethodCache[componentType] = method;
-        }
-        return method;
-    }
-}
-
-public static class ComponentDrawerHelpers
-{
-    public static object GetComponent<T>(Arch.Core.World world, Entity entity) where T : struct
-    {
-        return world.Get<T>(entity);
-    }
-
-    public static void SetComponent<T>(Arch.Core.World world, Entity entity, object value) where T : struct
-    {
-        world.Set(entity, (T)value);
     }
 }

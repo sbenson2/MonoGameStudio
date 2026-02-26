@@ -1,4 +1,4 @@
-using ImGuiNET;
+using Hexa.NET.ImGui;
 using Microsoft.Xna.Framework.Input;
 
 namespace MonoGameStudio.Editor.Editor;
@@ -16,6 +16,7 @@ public class ShortcutManager
     public event Action? OnSelectAll;
     public event Action? OnFocusSelected;
     public event Action? OnGizmoNone;
+    public event Action? OnGizmoBoundingBox;
     public event Action? OnGizmoMove;
     public event Action? OnGizmoRotate;
     public event Action? OnGizmoScale;
@@ -51,9 +52,10 @@ public class ShortcutManager
         if (!ctrl && !shift)
         {
             if (JustPressed(keyboard, Keys.Q)) OnGizmoNone?.Invoke();
-            if (JustPressed(keyboard, Keys.W)) OnGizmoMove?.Invoke();
+            if (JustPressed(keyboard, Keys.W)) OnGizmoBoundingBox?.Invoke();
             if (JustPressed(keyboard, Keys.E)) OnGizmoRotate?.Invoke();
             if (JustPressed(keyboard, Keys.R)) OnGizmoScale?.Invoke();
+            if (JustPressed(keyboard, Keys.T)) OnGizmoMove?.Invoke();
         }
 
         _prevKeyboard = keyboard;

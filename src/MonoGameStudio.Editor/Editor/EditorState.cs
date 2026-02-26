@@ -5,9 +5,20 @@ namespace MonoGameStudio.Editor.Editor;
 
 public class EditorState
 {
+    public ApplicationPhase Phase { get; set; } = ApplicationPhase.StartScreen;
     public EditorMode Mode { get; set; } = EditorMode.Edit;
     public string? CurrentScenePath { get; set; }
     public bool IsDirty { get; set; }
+
+    // Panel visibility (fields for ref access)
+    public bool ShowHierarchy = true;
+    public bool ShowInspector = true;
+    public bool ShowConsole = true;
+    public bool ShowAssetBrowser = true;
+    public bool ShowViewport = true;
+    public bool ShowSpriteSheet = false;
+    public bool ShowAnimation = false;
+    public bool ShowSettings = false;
 
     public List<Entity> SelectedEntities { get; } = new();
 

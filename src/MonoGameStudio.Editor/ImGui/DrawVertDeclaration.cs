@@ -1,4 +1,4 @@
-using ImGuiNET;
+using Hexa.NET.ImGui;
 using Microsoft.Xna.Framework.Graphics;
 
 namespace MonoGameStudio.Editor.ImGuiIntegration;

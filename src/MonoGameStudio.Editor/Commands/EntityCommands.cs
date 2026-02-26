@@ -138,6 +138,47 @@ public class RenameEntityCommand : ICommand
     }
 }
 
+public class TransformEntityCommand : ICommand
+{
+    private readonly WorldManager _worldManager;
+    private readonly Entity _entity;
+    private readonly Vector2 _oldPosition;
+    private readonly Vector2 _newPosition;
+    private readonly Vector2 _oldScale;
+    private readonly Vector2 _newScale;
+
+    public string Description => "Transform entity";
+
+    public TransformEntityCommand(WorldManager worldManager, Entity entity,
+        Vector2 oldPos, Vector2 newPos, Vector2 oldScale, Vector2 newScale)
+    {
+        _worldManager = worldManager;
+        _entity = entity;
+        _oldPosition = oldPos;
+        _newPosition = newPos;
+        _oldScale = oldScale;
+        _newScale = newScale;
+    }
+
+    public void Execute()
+    {
+        if (_worldManager.World.IsAlive(_entity))
+        {
+            _worldManager.World.Set(_entity, new Position(_newPosition.X, _newPosition.Y));
+            _worldManager.World.Set(_entity, new Scale(_newScale.X, _newScale.Y));
+        }
+    }
+
+    public void Undo()
+    {
+        if (_worldManager.World.IsAlive(_entity))
+        {
+            _worldManager.World.Set(_entity, new Position(_oldPosition.X, _oldPosition.Y));
+            _worldManager.World.Set(_entity, new Scale(_oldScale.X, _oldScale.Y));
+        }
+    }
+}
+
 public class ModifyComponentCommand<T> : ICommand where T : struct
 {
     private readonly Arch.Core.World _world;

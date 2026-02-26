@@ -1,12 +1,15 @@
 using System.Numerics;
-using ImGuiNET;
+using Hexa.NET.ImGui;
 using MonoGameStudio.Core.Logging;
+using MonoGameStudio.Editor.ImGuiIntegration;
 using MonoGameStudio.Editor.Layout;
 
 namespace MonoGameStudio.Editor.Panels;
 
 public class ConsolePanel
 {
+    private readonly ImGuiManager? _imGuiManager;
+
     private bool _showInfo = true;
     private bool _showWarnings = true;
     private bool _showErrors = true;
@@ -14,14 +17,18 @@ public class ConsolePanel
     private bool _autoScroll = true;
     private bool _scrollToBottom;
 
-    public ConsolePanel()
+    public ConsolePanel() : this(null) { }
+
+    public ConsolePanel(ImGuiManager? imGuiManager)
     {
+        _imGuiManager = imGuiManager;
         Log.OnLog += _ => _scrollToBottom = true;
     }
 
-    public void Draw()
+    public void Draw(ref bool isOpen)
     {
-        if (ImGui.Begin(LayoutDefinitions.Console))
+        if (!isOpen) return;
+        if (ImGui.Begin(LayoutDefinitions.Console, ref isOpen))
         {
             // Filter toolbar
             if (ImGui.Button("Clear")) Log.Clear();
@@ -50,6 +57,17 @@ public class ConsolePanel
             // Log entries
             if (ImGui.BeginChild("LogEntries", Vector2.Zero, ImGuiChildFlags.None, ImGuiWindowFlags.HorizontalScrollbar))
             {
+                // Use console font if available
+                bool pushedFont = false;
+                unsafe
+                {
+                    if (_imGuiManager != null && _imGuiManager.ConsoleFont.Handle != null)
+                    {
+                        ImGui.PushFont(_imGuiManager.ConsoleFont, _imGuiManager.ConsoleFontSize);
+                        pushedFont = true;
+                    }
+                }
+
                 for (int i = 0; i < Log.Count; i++)
                 {
                     var entry = Log.GetEntry(i);
@@ -70,6 +88,8 @@ public class ConsolePanel
                     ImGui.TextUnformatted($"[{entry.Timestamp:HH:mm:ss}] {entry.Message}");
                     ImGui.PopStyleColor();
                 }
+
+                if (pushedFont) ImGui.PopFont();
 
                 if (_scrollToBottom && _autoScroll)
                 {
